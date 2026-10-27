@@ -1,4 +1,5 @@
 const path = require("path");
+const fs = require("fs");
 const sqlite3 = require("sqlite3").verbose();
 const { open } = require("sqlite");
 
@@ -38,8 +39,19 @@ async function initSchema(db) {
 function getDB() {
     if (!dbPromise) {
         dbPromise = (async () => {
+            // Uses %APPDATA%\AnimeViewer in production so Windows permissions never block saving
+            const dataDir = process.env.APPDATA 
+                ? path.join(process.env.APPDATA, "AnimeViewer")
+                : path.resolve(__dirname, "..");
+
+            if (!fs.existsSync(dataDir)) {
+                fs.mkdirSync(dataDir, { recursive: true });
+            }
+
+            const dbFilePath = path.join(dataDir, "database.sqlite");
+
             const db = await open({
-                filename: path.resolve(__dirname, "../database.sqlite"),
+                filename: dbFilePath,
                 driver: sqlite3.Database
             });
 

@@ -45,6 +45,11 @@ function Settings() {
     setTimeout(() => setShowToast(false), 4000);
   };
 
+  const copySupportEmail = () => {
+    navigator.clipboard.writeText("support.relist@gmail.com");
+    triggerToast("Support email copied to clipboard!");
+  };
+
   useEffect(() => {
     async function loadStatsData() {
       try {
@@ -432,21 +437,67 @@ function Settings() {
           </div>
         </div>
 
-        {/* 8 About */}
+        {/* 8 Support & Feedback */}
+        <div style={{ ...card, border: "1px solid #2e1065", background: "#110d1a" }}>
+          <h2 style={title}>📬 Help & Support</h2>
+          <p style={desc}>
+            For any issues, queries, or feature suggestions, reach out anytime:
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "auto" }}>
+            <a
+              href="mailto:support.relist@gmail.com"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+                padding: "8px 12px",
+                background: "#1e1433",
+                border: "1px solid #7c3aed",
+                borderRadius: "8px",
+                color: "#d8b4fe",
+                textDecoration: "none",
+                fontSize: "12px",
+                fontWeight: 600,
+                wordBreak: "break-all",
+              }}
+            >
+              ✉️ support.relist@gmail.com
+            </a>
+            <button
+              type="button"
+              onClick={copySupportEmail}
+              style={{
+                padding: "7px 12px",
+                background: "#1f1f1f",
+                border: "1px solid #333",
+                borderRadius: "8px",
+                color: "#bbb",
+                fontSize: "11px",
+                cursor: "pointer",
+                fontWeight: 500,
+                alignSelf: "flex-start",
+              }}
+            >
+              📋 Copy Email
+            </button>
+          </div>
+        </div>
+
+        {/* 9 About */}
         <div style={card}>
           <h2 style={title}>ℹ️ About Re:List</h2>
           <p style={{ ...desc, marginBottom: "8px" }}>
             Local anime tracker with continue-watching, MAL sync, and multi-source player.
           </p>
           <div style={{ fontSize: "12px", color: "#555", lineHeight: 1.7, marginTop: "auto" }}>
-            Version 3 · Vite + React
+            Version 3 · Desktop Native
             <br />
             Press <strong style={{ color: "#aaa" }}>/</strong> or{" "}
             <strong style={{ color: "#aaa" }}>Ctrl+K</strong> to search
           </div>
         </div>
 
-        {/* 9 Danger */}
+        {/* 10 Danger */}
         <div style={{ ...card, border: "1px solid #7f1d1d", background: "#140f0f" }}>
           <h2 style={title}>🚨 Danger Zone</h2>
           <p style={desc}>Permanently wipe history and all collections.</p>
@@ -470,13 +521,6 @@ function Settings() {
           </button>
         </div>
       </div>
-
-      {/* Responsive: 2 cols on medium, 1 on small */}
-      <style>{`
-        @media (max-width: 1100px) {
-          .settings-grid-fallback {}
-        }
-      `}</style>
 
       {showClearModal && (
         <div
