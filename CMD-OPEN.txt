@@ -1,0 +1,11 @@
+Easiest: double-click start.bat
+
+Or by hand (two terminals):
+
+  cd backend
+  node server.js          -> http://localhost:5000
+
+  cd frontend
+  npm run dev             -> http://localhost:5173   (open this one)
+
+Stop the backend with Ctrl+C (or close its window) so the database is saved cleanly.

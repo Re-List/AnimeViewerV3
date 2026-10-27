@@ -1,0 +1,142 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+body {
+  background: #0a0a0a;
+  color: white;
+  font-family: Arial, sans-serif;
+}
+
+/* Hide horizontal scrollbar on anime rows but keep vertical page scroll */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #111;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+.search-box {
+  width: 100%;
+  padding: 14px;
+  border: none;
+  border-radius: 10px;
+  background: #222;
+  color: white;
+  margin-bottom: 25px;
+  font-size: 16px;
+}
+
+.search-box:focus {
+  outline: none;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 20px;
+}
+
+.card {
+  background: #1d1d1d;
+  border-radius: 12px;
+  overflow: hidden;
+  transition: transform 0.2s;
+  cursor: pointer;
+}
+
+.card:hover {
+  transform: scale(1.04);
+}
+
+.poster-placeholder {
+  height: 250px;
+  background: #333;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #aaa;
+  font-size: 18px;
+}
+
+.card h3 {
+  padding: 12px;
+  text-align: center;
+}
+
+.anime-poster {
+  width: 100%;
+  height: 270px;
+  object-fit: cover;
+  display: block;
+}
+
+.menu-link {
+  text-decoration: none;
+  color: white;
+}
+
+.anime-link {
+  text-decoration: none;
+  color: white;
+}
+
+.details-container {
+  display: flex;
+  gap: 30px;
+  align-items: flex-start;
+}
+
+.details-poster {
+  width: 300px;
+  border-radius: 12px;
+}
+
+.details-info {
+  flex: 1;
+}
+
+.favorite-btn {
+  padding: 12px 20px;
+  border: none;
+  border-radius: 10px;
+  background: #f5c518;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.synopsis {
+  line-height: 1.7;
+  margin-top: 10px;
+}
+
+.remove-btn {
+  width: 100%;
+  padding: 10px;
+  border: none;
+  cursor: pointer;
+  background: #2a2a2a;
+  color: white;
+}

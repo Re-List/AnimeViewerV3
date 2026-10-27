@@ -1,0 +1,26 @@
+TERMS OF SERVICE AND END USER LICENSE AGREEMENT (EULA)
+Last Updated: October 2026
+
+Please read these Terms and Conditions carefully before installing or using AnimeViewer ("the Application"). By installing, copying, or using this Application, you agree to be bound by these terms.
+
+1. PRIVACY & LOCAL DATA STORAGE
+- Zero Data Harvesting: The Application does not collect, sell, monitor, or transmit your personal data, watch history, bookmarks, or viewing habits to any external servers or third parties.
+- Local Operation: All favorites, watch history, settings, and database entries are stored 100% locally on your device within an isolated local database.
+- Local Sharing: Any data synchronization operates solely within your own local area network (LAN) and remains under your exclusive control.
+
+2. AUTOMATIC UPDATES & NETWORK PERMISSIONS
+- Automatic Updates: The Application includes an integrated updater mechanism designed to keep the software secure, bug-free, and up-to-date.
+- Periodic Version Checks: By installing this Application, you grant permission for it to periodically check for official updates, patches, and feature improvements from the developer's verified release repository and to download updates when available.
+- Update Notice: You will be notified when an update has been downloaded and is ready to install.
+
+3. LICENSE & USAGE
+- You are granted a personal, revocable, non-exclusive, non-transferable license to install and use the Application across your personal computers.
+- You agree not to reverse engineer, decompile, or distribute malicious modifications of this software.
+
+4. DISCLAIMER OF WARRANTY & THIRD-PARTY CONTENT
+- The Application is provided "AS IS" and "AS AVAILABLE" without warranties of any kind, either express or implied.
+- The Application functions as an interface and catalog tool. It does not host video streams or media files directly on proprietary servers. Any metadata, video links, or information fetched via third-party APIs remain the intellectual property of their respective owners.
+- The developer is not liable for any interruptions, network failures, or data losses resulting from the use of this Application.
+
+5. ACCEPTANCE
+If you do not agree to these terms, click "Cancel" to abort the installation.
