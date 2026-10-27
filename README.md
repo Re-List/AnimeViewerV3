@@ -1,38 +1,65 @@
-# Re:List (Anime Viewer) - fixed build
+<p align="center">
+  <img src="logo.png" width="120" alt="Re:List Logo" style="border-radius: 20px;"/>
+</p>
 
-## Run it
-Double-click **start.bat** (starts the backend on :5000 and the site on :5173, then opens the browser).
-Needs Node.js 20.19+ or 22+. `node_modules` is included; if you move this to another
-computer/OS, delete both `node_modules` folders and run `npm install` in `backend` and `frontend`.
+<h1 align="center">𝕽𝖊:𝕷𝖎𝖘𝖙</h1>
 
-## What was fixed
-**History / Continue Watching**
-- Added the missing backend routes (`/history/continue`, `/history/latest/:id`, `/history/hide/:id`, `/history/hide-all`).
-- The Player now actually saves your episode, and the payload matches what the server expects. Resume + Continue Watching work.
-- "Hide" now hides from Continue Watching only (History is kept). Shows marked *Completed* no longer appear in Continue Watching.
-- Database migrates itself (adds a `hidden` column); your existing data is untouched.
+<p align="center">
+  <strong>A standalone Windows desktop anime tracker, player, and catalog manager.</strong><br>
+  Built with Electron, React, Vite, Express, and SQLite.
+</p>
 
-**Player**
-- Source button works (it was being overwritten by a stale timer). Your source/theater choice is remembered.
-- Resume URL fixed (`?t=`), and no resume if you had basically finished the episode.
-- The video no longer reloads itself during the last seconds of an episode.
-- Auto-next now shows a "Next episode in Ns - Cancel" banner.
-- Unreachable error screen replaced by a "Video not loading? Try next source" hint.
-- Episode count for airing shows is taken from AniList (no more 1200-episode grid).
+<p align="center">
+  <img src="https://img.shields.io/badge/Platform-Windows-blue?logo=windows" alt="Platform" />
+  <img src="https://img.shields.io/badge/Framework-Electron-47848F?logo=electron" alt="Electron" />
+  <img src="https://img.shields.io/badge/Frontend-React%2019-61DAFB?logo=react" alt="React" />
+  <img src="https://img.shields.io/badge/Database-SQLite%20(Local)-003B57?logo=sqlite" alt="SQLite" />
+  <img src="https://img.shields.io/badge/Auto--Updates-Enabled-brightgreen" alt="Auto-Updates" />
+</p>
 
-**App**
-- Search is back: box in the top bar with live suggestions, Enter opens a full results page. Debounced, no stale results.
-- "Trending Now" is a real trending list; Top Rated is its own row.
-- Watch List: tab highlight fixed, counts from a single request, error message when the backend is down.
-- Synopsis text decodes `&quot;` / `&amp;` properly; type badges (TV / Movie / OVA) now show.
-- `HistoryService.js` renamed to `historyService.js` so imports work on Linux/macOS too.
-- Backend address is in one place (`frontend/src/config.js`, override with `VITE_API_URL`).
-- Clean shutdown merges the database WAL file into `database.sqlite`, so that single file always holds everything.
-- Removed junk: stray `{` file, dead Favorites/History pages. The unused `anime.db` moved to `_legacy_unused/`.
-- ESLint: 0 errors (was 9).
+---
 
-## Good to know
-- Only the **MegaPlay** URL pattern is known to fit the `/mal/{id}/{episode}/{sub|dub}` scheme. The other three
-  sources in `frontend/src/pages/Player.jsx` (`EMBED_SOURCES`) are untested - edit or remove them there.
-- If you kept using the old version after sending me the zip, copy your newest `backend/database.sqlite`
-  (and any `-wal` / `-shm` files next to it) over the one here *before* first start.
+## ✨ Features
+
+- **Dedicated Desktop App**: Runs in its own clean desktop window with custom dark mode branding (no browser tabs or command-line consoles needed).
+- **Zero Dependencies for Users**: Packages Node.js, Chromium, and all backend dependencies into a single standalone `.exe` installer. Other PCs don't need anything pre-installed.
+- **100% Local Privacy**: All watch history, watchlist categories, and settings are saved to a local SQLite database in `%APPDATA%`. No tracking, no harvesting, and no remote data storage.
+- **Automated Background Updates**: Powered by `electron-updater` and GitHub Releases. Clients automatically detect, download, and apply bug fixes and new features with a single click.
+- **Advanced Player Experience**:
+  - Seamless episode resume (`?t=`) and continue-watching tracking.
+  - Multi-source player fallback with theater mode and audio language preferences (SUB / DUB).
+  - Configurable auto-next episode countdown banner.
+- **Watchlist Organization**: Custom categories (*Watching*, *Completed*, *On-Hold*, *Dropped*, *Plan to Watch*) with quick status filters and search bar integration.
+- **MyAnimeList (MAL) Backup**: One-click XML export and import tools to keep your catalog synced with MAL.
+- **Built-in Support Channel**: In-app feedback and query tile connected directly to `support.relist@gmail.com`.
+
+---
+
+## 📥 Download & Installation (For Users)
+
+1. Head over to the **[Releases](https://github.com/Re-List/AnimeViewerV3/releases)** page.
+2. Download the latest installer: **`ReList Setup X.X.X.exe`**.
+3. Run the installer:
+   - Review and accept the Terms & Conditions.
+   - Choose your preferred installation directory.
+   - Shortcuts are automatically added to your Desktop and Windows Start Menu.
+4. Launch **Re:List** from your desktop or app list.
+
+---
+
+## 🛠️ Development & Building from Source
+
+### Prerequisites
+- [Node.js](https://nodejs.org/) (v20+ or v22+)
+- Git
+
+### 1. Clone & Install Dependencies
+```bash
+git clone [https://github.com/Re-List/AnimeViewerV3.git](https://github.com/Re-List/AnimeViewerV3.git)
+cd AnimeViewerV3
+
+# Install root dependencies (Electron, backend tools, electron-updater)
+npm install
+
+# Install frontend dependencies
+cd frontend && npm install && cd ..
