@@ -7,8 +7,6 @@ function isRealImageUrl(url) {
   return typeof url === "string" && /^https?:\/\//i.test(url);
 }
 
-// Jikan allows ~3 requests/sec. A watchlist page fires one lookup per tile,
-// so serialize them or most of the posters 429 and stay blank.
 let imageQueue = Promise.resolve();
 function enqueueImageLookup(fn) {
   const run = imageQueue.then(fn, fn);
@@ -32,8 +30,6 @@ function AnimeCard({
       anime.images?.jpg?.large_image_url ||
       anime.images?.jpg?.image_url ||
       anime.image;
-    // MAL XML import stores the literal "MAL_IMPORT", which is not a URL.
-    // A cached non-http value is just as useless.
     if (isRealImageUrl(cached)) return cached;
     if (isRealImageUrl(fromAnime)) return fromAnime;
     return "";
@@ -68,22 +64,32 @@ function AnimeCard({
   const displayTitle = anime.title_english || anime.title;
 
   return (
-    <div style={{ background: "#1f1f1f", borderRadius: "8px", position: "relative", overflow: "hidden" }}>
+    <div
+      style={{
+        background: "var(--bg-surface)",
+        border: "1px solid var(--border-color)",
+        borderRadius: "10px",
+        position: "relative",
+        overflow: "hidden",
+        boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+        transition: "transform 0.2s ease, box-shadow 0.2s ease",
+      }}
+    >
       {!isSearchResult && onDeleteClick && (
         <button
           onClick={(e) => { e.preventDefault(); onDeleteClick(id); }}
           style={{
             position: "absolute", top: "8px", right: "8px", zIndex: 10,
-            background: "rgba(0,0,0,0.7)", border: "none", color: "white",
-            borderRadius: "50%", cursor: "pointer", width: "28px", height: "28px",
-            fontSize: "16px"
+            background: "rgba(0,0,0,0.75)", border: "none", color: "white",
+            borderRadius: "50%", cursor: "pointer", width: "26px", height: "26px",
+            fontSize: "14px", display: "flex", alignItems: "center", justifyContent: "center"
           }}
         >
           ✕
         </button>
       )}
 
-      <Link to={`/anime/${id}`} style={{ textDecoration: "none", color: "white" }}>
+      <Link to={`/anime/${id}`} style={{ textDecoration: "none", color: "var(--text-primary)" }}>
         {src ? (
           <img
             src={src}
@@ -93,11 +99,11 @@ function AnimeCard({
               localStorage.removeItem(`img_${id}`);
               setSrc("");
             }}
-            style={{ width: "100%", height: "260px", objectFit: "cover", display: "block", background: "#111" }}
+            style={{ width: "100%", height: "250px", objectFit: "cover", display: "block", background: "var(--bg-primary)" }}
           />
         ) : (
-          <div style={{ width: "100%", height: "260px", background: "#111", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <span style={{ fontSize: "11px", color: "#444", fontWeight: "bold" }}>LOADING...</span>
+          <div style={{ width: "100%", height: "250px", background: "var(--bg-primary)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <span style={{ fontSize: "11px", color: "var(--text-muted)", fontWeight: "bold" }}>LOADING...</span>
           </div>
         )}
 
@@ -105,6 +111,7 @@ function AnimeCard({
           <h4 style={{
             margin: 0,
             fontSize: "13.5px",
+            color: "var(--text-primary)",
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",

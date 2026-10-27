@@ -147,9 +147,18 @@ function AnimeTile({ anime, fluid = false }) {
     >
       <Link
         to={`/anime/${anime.mal_id}`}
-        style={{ textDecoration: "none", color: "white", display: "block" }}
+        style={{ textDecoration: "none", color: "var(--text-primary)", display: "block" }}
       >
-        <div style={{ background: "#161616", borderRadius: "10px", overflow: "hidden" }}>
+        <div
+          style={{
+            background: "var(--bg-surface)",
+            border: "1px solid var(--border-color)",
+            borderRadius: "10px",
+            overflow: "hidden",
+            transition: "all 0.25s ease",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+          }}
+        >
           <div style={{ position: "relative" }}>
             {img ? (
               <img
@@ -159,7 +168,7 @@ function AnimeTile({ anime, fluid = false }) {
                 style={{ width: "100%", aspectRatio: "5 / 7", objectFit: "cover", display: "block" }}
               />
             ) : (
-              <div style={{ width: "100%", aspectRatio: "5 / 7", background: "#111" }} />
+              <div style={{ width: "100%", aspectRatio: "5 / 7", background: "var(--bg-primary)" }} />
             )}
             {anime.score && (
               <div
@@ -184,7 +193,8 @@ function AnimeTile({ anime, fluid = false }) {
                   position: "absolute",
                   top: "8px",
                   left: "8px",
-                  background: "rgba(0,0,0,0.7)",
+                  background: "rgba(0,0,0,0.75)",
+                  color: "white",
                   fontSize: "10px",
                   padding: "2px 6px",
                   borderRadius: "4px",
@@ -200,6 +210,7 @@ function AnimeTile({ anime, fluid = false }) {
               style={{
                 fontSize: "13px",
                 fontWeight: 600,
+                color: "var(--text-primary)",
                 whiteSpace: "nowrap",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
@@ -214,7 +225,7 @@ function AnimeTile({ anime, fluid = false }) {
                 justifyContent: "space-between",
                 gap: "6px",
                 fontSize: "11px",
-                color: "#888",
+                color: "var(--text-muted)",
               }}
             >
               <span>{episodes}</span>
@@ -236,19 +247,21 @@ function AnimeTile({ anime, fluid = false }) {
             left: previewPos.left,
             width: "280px",
             zIndex: 9999,
-            background: "#161b22",
-            border: "1px solid #2a3340",
+            background: "var(--bg-surface)",
+            border: "1px solid var(--border-color)",
             borderRadius: "12px",
-            boxShadow: "0 18px 40px rgba(0,0,0,0.55)",
+            boxShadow: "0 18px 40px rgba(0,0,0,0.45)",
             padding: "14px",
-            color: "white",
+            color: "var(--text-primary)",
           }}
         >
           <div
             style={{
               fontSize: "15px",
               fontWeight: 700,
-              color: "#93c5fd",
+              background: "var(--brand-gradient)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
               marginBottom: "8px",
               lineHeight: 1.3,
             }}
@@ -268,7 +281,7 @@ function AnimeTile({ anime, fluid = false }) {
             style={{
               margin: "0 0 12px",
               fontSize: "12px",
-              color: "#a1a1aa",
+              color: "var(--text-muted)",
               lineHeight: 1.5,
               maxHeight: "90px",
               overflow: "hidden",
@@ -276,12 +289,6 @@ function AnimeTile({ anime, fluid = false }) {
           >
             {shortSyn}
           </p>
-
-          {(anime.genres || []).length > 0 && (
-            <div style={{ fontSize: "11px", color: "#71717a", marginBottom: "12px" }}>
-              Genre: {(anime.genres || []).map((g) => g.name || g).slice(0, 4).join(", ")}
-            </div>
-          )}
 
           <div style={{ display: "flex", gap: "8px", position: "relative" }}>
             <button
@@ -296,7 +303,7 @@ function AnimeTile({ anime, fluid = false }) {
                 fontWeight: 700,
                 fontSize: "13px",
                 color: "white",
-                background: "linear-gradient(135deg, #7c3aed, #f43f5e)",
+                background: "var(--accent-gradient)",
               }}
             >
               ▶ Watch
@@ -314,9 +321,9 @@ function AnimeTile({ anime, fluid = false }) {
               style={{
                 width: "42px",
                 borderRadius: "8px",
-                border: "1px solid #333",
-                background: "#1f1f1f",
-                color: "white",
+                border: "1px solid var(--border-color)",
+                background: "var(--bg-primary)",
+                color: "var(--text-primary)",
                 cursor: "pointer",
                 fontSize: "18px",
                 fontWeight: 700,
@@ -331,12 +338,12 @@ function AnimeTile({ anime, fluid = false }) {
                   position: "absolute",
                   right: 0,
                   bottom: "48px",
-                  background: "#1a1f2a",
-                  border: "1px solid #2a3340",
+                  background: "var(--bg-surface)",
+                  border: "1px solid var(--border-color)",
                   borderRadius: "8px",
                   overflow: "hidden",
                   minWidth: "130px",
-                  boxShadow: "0 8px 24px rgba(0,0,0,0.45)",
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
                   zIndex: 2,
                 }}
               >
@@ -358,12 +365,10 @@ function AnimeTile({ anime, fluid = false }) {
                       padding: "9px 12px",
                       background: "transparent",
                       border: "none",
-                      color: "#e5e7eb",
+                      color: "var(--text-primary)",
                       cursor: "pointer",
                       fontSize: "13px",
                     }}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = "#252b38")}
-                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                   >
                     {s.label}
                   </button>
@@ -384,9 +389,9 @@ function Chip({ children }) {
         fontSize: "10px",
         padding: "2px 7px",
         borderRadius: "4px",
-        background: "#222831",
-        color: "#cbd5e1",
-        border: "1px solid #2f3a48",
+        background: "var(--bg-primary)",
+        color: "var(--text-primary)",
+        border: "1px solid var(--border-color)",
         textTransform: "uppercase",
         fontWeight: 600,
       }}

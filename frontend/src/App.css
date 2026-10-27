@@ -4,6 +4,16 @@
   box-sizing: border-box;
 }
 
+:root {
+  --brand-gradient: linear-gradient(90deg, #fff 0%, #c084fc 45%, #f43f5e 100%);
+  --accent-gradient: linear-gradient(135deg, #7c3aed 0%, #a855f7 50%, #f43f5e 100%);
+  --bg-primary: #0a0a0a;
+  --bg-surface: #141414;
+  --border-color: #222222;
+  --text-primary: #ffffff;
+  --text-muted: #888888;
+}
+
 html,
 body,
 #root {
@@ -14,23 +24,68 @@ body,
 }
 
 body {
-  background: #0a0a0a;
-  color: white;
+  background: var(--bg-primary);
+  color: var(--text-primary);
   font-family: Arial, sans-serif;
+  transition: background 0.25s ease, color 0.25s ease;
 }
 
-/* Hide horizontal scrollbar on anime rows but keep vertical page scroll */
+/* ========================================================
+   GLOBAL DYNAMIC THEME OVERRIDES (ALL SUB-PAGES)
+   ======================================================== */
+
+/* 1. Forces Home, Watchlist, Continue, Search, and Details to use active theme background */
+main,
+main > div,
+div[style*="background: #0a0a0a"],
+div[style*="background:#0a0a0a"],
+div[style*="background: rgb(10, 10, 10)"],
+div[style*="background-color: #0a0a0a"],
+div[style*="background-color: rgb(10, 10, 10)"] {
+  background: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+/* 2. Recolor all cards, collection boxes, and panels across all pages */
+div[style*="background: #141414"],
+div[style*="background:#141414"],
+div[style*="background: rgb(20, 20, 20)"],
+div[style*="background: #121212"],
+div[style*="background: #1a1a1a"],
+div[style*="background: #1f1f1f"] {
+  background: var(--bg-surface) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
+  transition: background 0.25s ease, border-color 0.25s ease;
+}
+
+/* 3. Recolor heading gradient words (e.g. "Watch Management", "Continue Watching") */
+h1 span[style*="background: linear-gradient"],
+h1 span[style*="background:linear-gradient"],
+h1 span[style*="-webkit-background-clip: text"],
+h2 span[style*="-webkit-background-clip: text"] {
+  background: var(--brand-gradient) !important;
+  -webkit-background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  background-clip: text !important;
+}
+
+/* ========================================================
+   SCROLLBARS & UI COMPONENTS
+   ======================================================== */
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #111;
+  background: var(--bg-primary);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #333;
+  background: var(--border-color);
   border-radius: 4px;
 }
 
@@ -41,10 +96,10 @@ body {
 .search-box {
   width: 100%;
   padding: 14px;
-  border: none;
+  border: 1px solid var(--border-color);
   border-radius: 10px;
-  background: #222;
-  color: white;
+  background: var(--bg-surface);
+  color: var(--text-primary);
   margin-bottom: 25px;
   font-size: 16px;
 }
@@ -60,10 +115,11 @@ body {
 }
 
 .card {
-  background: #1d1d1d;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
   border-radius: 12px;
   overflow: hidden;
-  transition: transform 0.2s;
+  transition: transform 0.2s, box-shadow 0.2s;
   cursor: pointer;
 }
 
@@ -84,6 +140,7 @@ body {
 .card h3 {
   padding: 12px;
   text-align: center;
+  color: var(--text-primary);
 }
 
 .anime-poster {
@@ -93,50 +150,8 @@ body {
   display: block;
 }
 
-.menu-link {
-  text-decoration: none;
-  color: white;
-}
-
+.menu-link,
 .anime-link {
   text-decoration: none;
-  color: white;
-}
-
-.details-container {
-  display: flex;
-  gap: 30px;
-  align-items: flex-start;
-}
-
-.details-poster {
-  width: 300px;
-  border-radius: 12px;
-}
-
-.details-info {
-  flex: 1;
-}
-
-.favorite-btn {
-  padding: 12px 20px;
-  border: none;
-  border-radius: 10px;
-  background: #f5c518;
-  cursor: pointer;
-  font-size: 16px;
-}
-
-.synopsis {
-  line-height: 1.7;
-  margin-top: 10px;
-}
-
-.remove-btn {
-  width: 100%;
-  padding: 10px;
-  border: none;
-  cursor: pointer;
-  background: #2a2a2a;
-  color: white;
+  color: var(--text-primary);
 }

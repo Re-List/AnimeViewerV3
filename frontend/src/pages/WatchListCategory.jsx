@@ -22,7 +22,7 @@ function WatchListCategory() {
     async function loadData() {
       try {
         const data = await getWatchlistByStatus(category);
-        setAnimeList(data);
+        setAnimeList(data || []);
       } catch (err) {
         console.error("Failed to load category:", err);
       }
@@ -39,7 +39,7 @@ function WatchListCategory() {
     if (!animeToDelete) return;
     try {
       await removeFromWatchlist(animeToDelete);
-      setAnimeList(prev => prev.filter(item => item.anime_id !== animeToDelete));
+      setAnimeList((prev) => prev.filter((item) => item.anime_id !== animeToDelete));
     } catch (err) {
       console.error("Failed to delete:", err);
     }
@@ -47,25 +47,36 @@ function WatchListCategory() {
   };
 
   return (
-    <div style={{ background: "#0a0a0a", minHeight: "100vh", color: "white", padding: "20px" }}>
+    <div style={{ background: "var(--bg-primary)", minHeight: "100vh", color: "var(--text-primary)", padding: "24px 28px 60px", transition: "all 0.25s ease" }}>
       <h1 style={{ 
         marginTop: 0, 
-        marginBottom: "20px", 
-        borderLeft: "4px solid #3b82f6", 
-        paddingLeft: "10px" 
+        marginBottom: "24px", 
+        borderLeft: "4px solid #7c3aed", 
+        paddingLeft: "12px",
+        fontSize: "24px",
+        fontWeight: 700,
+        color: "var(--text-primary)"
       }}>
         {titleMap[category] || category.charAt(0).toUpperCase() + category.slice(1)}
       </h1>
 
       {animeList.length === 0 ? (
-        <h3 style={{ color: "#888", textAlign: "center", marginTop: "50px" }}>
-          No anime in this category yet.
-        </h3>
+        <div style={{
+          textAlign: "center",
+          padding: "60px 20px",
+          color: "var(--text-muted)",
+          background: "var(--bg-surface)",
+          borderRadius: "14px",
+          border: "1px dashed var(--border-color)",
+          marginTop: "20px",
+        }}>
+          <h3>No anime in this category yet.</h3>
+        </div>
       ) : (
         <div style={{ 
           display: "grid", 
           gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", 
-          gap: "20px" 
+          gap: "18px" 
         }}>
           {animeList.map((item) => (
             <AnimeCard
@@ -81,23 +92,27 @@ function WatchListCategory() {
       {showModal && (
         <div style={{ 
           position: "fixed", 
-          top: 0, left: 0, width: "100%", height: "100%", 
-          background: "rgba(0,0,0,0.85)", 
+          inset: 0, 
+          background: "rgba(0,0,0,0.7)", 
           display: "flex", alignItems: "center", justifyContent: "center", 
-          zIndex: 1000 
+          zIndex: 1000,
+          backdropFilter: "blur(4px)"
         }}>
           <div style={{ 
-            background: "#1f1f1f", 
-            padding: "30px", 
-            borderRadius: "8px", 
+            background: "var(--bg-surface)", 
+            padding: "28px", 
+            borderRadius: "12px", 
             textAlign: "center", 
-            border: "1px solid #333",
-            minWidth: "300px"
+            border: "1px solid var(--border-color)",
+            minWidth: "320px",
+            color: "var(--text-primary)"
           }}>
-            <h3>Confirm Removal?</h3>
-            <p style={{ color: "#aaa", margin: "15px 0" }}>This action cannot be undone.</p>
+            <h3 style={{ margin: "0 0 10px 0" }}>Confirm Removal?</h3>
+            <p style={{ color: "var(--text-muted)", margin: "0 0 20px 0", fontSize: "14px" }}>
+              This action cannot be undone.
+            </p>
             
-            <div style={{ display: "flex", gap: "12px", justifyContent: "center", marginTop: "20px" }}>
+            <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
               <button 
                 onClick={executeDelete} 
                 style={{ 
@@ -110,8 +125,8 @@ function WatchListCategory() {
               <button 
                 onClick={() => setShowModal(false)} 
                 style={{ 
-                  background: "#333", color: "white", padding: "10px 24px", 
-                  border: "none", borderRadius: "6px", cursor: "pointer" 
+                  background: "var(--bg-primary)", color: "var(--text-primary)", padding: "10px 24px", 
+                  border: "1px solid var(--border-color)", borderRadius: "6px", cursor: "pointer" 
                 }}
               >
                 Cancel

@@ -1,4 +1,5 @@
 // frontend/src/App.jsx
+import { useEffect } from "react";
 import Player from "./pages/Player";
 import AnimeDetails from "./pages/AnimeDetails";
 import { Toaster } from "react-hot-toast";
@@ -11,6 +12,7 @@ import WatchList from "./pages/WatchList";
 import WatchListCategory from "./pages/WatchListCategory";
 import ContinueWatching from "./pages/ContinueWatching";
 import Settings from "./pages/Settings";
+import { applyTheme, getCurrentTheme } from "./services/themeService";
 
 function NavBar() {
   const location = useLocation();
@@ -28,9 +30,10 @@ function NavBar() {
         position: "sticky",
         top: 0,
         zIndex: 200,
-        background: "rgba(10,10,10,0.92)",
-        backdropFilter: "blur(12px)",
-        borderBottom: "1px solid #1f1f1f",
+        background: "var(--bg-surface)",
+        backdropFilter: "blur(16px)",
+        WebkitBackdropFilter: "blur(16px)",
+        borderBottom: "1px solid var(--border-color)",
         padding: "8px 24px",
         minHeight: "58px",
         flexWrap: "wrap",
@@ -38,9 +41,10 @@ function NavBar() {
         alignItems: "center",
         justifyContent: "space-between",
         gap: "20px",
+        transition: "all 0.25s ease",
       }}
     >
-      {/* Logo + Name */}
+      {/* Logo + Gradient Name */}
       <Link
         to="/"
         style={{
@@ -48,7 +52,7 @@ function NavBar() {
           alignItems: "center",
           gap: "10px",
           textDecoration: "none",
-          color: "white",
+          color: "var(--text-primary)",
         }}
       >
         <img
@@ -67,7 +71,7 @@ function NavBar() {
             fontSize: "20px",
             fontWeight: "700",
             letterSpacing: "0.5px",
-            background: "linear-gradient(90deg, #fff 0%, #c084fc 45%, #f43f5e 100%)",
+            background: "var(--brand-gradient)",
             WebkitBackgroundClip: "text",
             WebkitTextFillColor: "transparent",
             backgroundClip: "text",
@@ -77,10 +81,10 @@ function NavBar() {
         </span>
       </Link>
 
-      {/* Search */}
+      {/* Search Bar */}
       <SearchBar />
 
-      {/* Nav links */}
+      {/* Navigation Links */}
       <nav style={{ display: "flex", gap: "6px", alignItems: "center" }}>
         {links.map((link) => {
           const active =
@@ -96,12 +100,10 @@ function NavBar() {
                 textDecoration: "none",
                 fontSize: "14px",
                 fontWeight: active ? "600" : "500",
-                color: active ? "white" : "#bbb",
-                background: active
-                  ? "linear-gradient(135deg, #7c3aed 0%, #a855f7 50%, #f43f5e 100%)"
-                  : "transparent",
+                color: active ? "white" : "var(--text-muted)",
+                background: active ? "var(--accent-gradient)" : "transparent",
                 border: active ? "none" : "1px solid transparent",
-                transition: "all 0.15s",
+                transition: "all 0.2s ease",
               }}
             >
               {link.label}
@@ -114,9 +116,20 @@ function NavBar() {
 }
 
 function App() {
+  useEffect(() => {
+    applyTheme(getCurrentTheme());
+  }, []);
+
   return (
     <BrowserRouter>
-      <div style={{ background: "#0a0a0a", minHeight: "100vh", color: "white" }}>
+      <div
+        style={{
+          background: "var(--bg-primary)",
+          minHeight: "100vh",
+          color: "var(--text-primary)",
+          transition: "background 0.25s ease, color 0.25s ease",
+        }}
+      >
         <Toaster
           position="bottom-right"
           toastOptions={{ style: { background: "#333", color: "#fff" } }}

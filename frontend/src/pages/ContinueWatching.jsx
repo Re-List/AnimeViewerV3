@@ -11,6 +11,8 @@ import {
 function ContinueWatching() {
   const [continueList, setContinueList] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showClearModal, setShowClearModal] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -38,14 +40,18 @@ function ContinueWatching() {
     }
   };
 
-  const handleClearAll = async () => {
-    if (!window.confirm("Clear the Continue Watching list? Your Watch History is kept.")) return;
+  const confirmClearAll = async () => {
+    setIsClearing(true);
     try {
       await hideAllFromContinueWatching();
       setContinueList([]);
+      toast.success("Continue Watching cleared");
     } catch (err) {
       console.error(err);
       toast.error("Failed to clear the list");
+    } finally {
+      setIsClearing(false);
+      setShowClearModal(false);
     }
   };
 
@@ -76,14 +82,14 @@ function ContinueWatching() {
 
   if (loading) {
     return (
-      <div style={{ padding: "60px", color: "#888", textAlign: "center" }}>
+      <div style={{ padding: "60px", color: "var(--text-muted)", textAlign: "center", background: "var(--bg-primary)", minHeight: "100vh" }}>
         Loading continue watching…
       </div>
     );
   }
 
   return (
-    <div style={{ background: "#0a0a0a", minHeight: "100vh", color: "white", padding: "24px 28px 60px" }}>
+    <div style={{ background: "var(--bg-primary)", minHeight: "100vh", color: "var(--text-primary)", padding: "24px 28px 60px", transition: "all 0.25s ease" }}>
       <div
         style={{
           display: "flex",
@@ -95,20 +101,20 @@ function ContinueWatching() {
         }}
       >
         <div>
-          <h1
-            style={{
-              margin: 0,
-              fontSize: "24px",
-              fontWeight: 700,
-              background: "linear-gradient(90deg, #fff 0%, #c084fc 50%, #f43f5e 100%)",
-              WebkitBackgroundClip: "text",
-              WebkitTextFillColor: "transparent",
-              backgroundClip: "text",
-            }}
-          >
-            Continue Watching
+          <h1 style={{ margin: 0, fontSize: "24px", fontWeight: 700 }}>
+            <span
+              style={{
+                background: "var(--brand-gradient)",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+                backgroundClip: "text",
+                display: "inline-block",
+              }}
+            >
+              Continue Watching
+            </span>
           </h1>
-          <p style={{ margin: "6px 0 0", color: "#666", fontSize: "13px" }}>
+          <p style={{ margin: "6px 0 0", color: "var(--text-muted)", fontSize: "13px" }}>
             Pick up exactly where you left off
           </p>
         </div>
@@ -116,16 +122,17 @@ function ContinueWatching() {
         {continueList.length > 0 && (
           <button
             type="button"
-            onClick={handleClearAll}
+            onClick={() => setShowClearModal(true)}
             style={{
               padding: "9px 16px",
               borderRadius: "8px",
-              border: "1px solid #3f1f1f",
-              background: "#1a1212",
+              border: "1px solid #7f1d1d",
+              background: "var(--bg-surface)",
               color: "#f87171",
               cursor: "pointer",
               fontSize: "13px",
               fontWeight: 600,
+              transition: "all 0.2s ease",
             }}
           >
             Clear all
@@ -138,14 +145,14 @@ function ContinueWatching() {
           style={{
             textAlign: "center",
             padding: "70px 20px",
-            color: "#666",
-            background: "#121212",
+            color: "var(--text-muted)",
+            background: "var(--bg-surface)",
             borderRadius: "14px",
-            border: "1px dashed #2a2a2a",
+            border: "1px dashed var(--border-color)",
           }}
         >
           <div style={{ fontSize: "36px", marginBottom: "12px", opacity: 0.45 }}>▶</div>
-          <div style={{ fontSize: "16px", fontWeight: 600, color: "#999", marginBottom: "6px" }}>
+          <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "6px" }}>
             Nothing to continue
           </div>
           <div style={{ fontSize: "13px" }}>Start watching an episode and it will appear here.</div>
@@ -156,7 +163,7 @@ function ContinueWatching() {
               marginTop: "18px",
               padding: "10px 18px",
               borderRadius: "8px",
-              background: "linear-gradient(135deg, #7c3aed, #f43f5e)",
+              background: "var(--accent-gradient)",
               color: "white",
               textDecoration: "none",
               fontWeight: 600,
@@ -204,27 +211,29 @@ function ContinueWatching() {
                     color: "white",
                     cursor: "pointer",
                     fontSize: "14px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
                   }}
                 >
                   ✕
                 </button>
 
-                <Link to={`/player/${id}/${episode}`} style={{ textDecoration: "none", color: "white" }}>
+                <Link to={`/player/${id}/${episode}`} style={{ textDecoration: "none", color: "var(--text-primary)" }}>
                   <div
                     style={{
-                      background: "#141414",
+                      background: "var(--bg-surface)",
                       borderRadius: "12px",
                       overflow: "hidden",
-                      border: "1px solid #222",
+                      border: "1px solid var(--border-color)",
                       transition: "transform 0.15s, border-color 0.15s",
+                      boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
                     }}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.transform = "translateY(-3px)";
-                      e.currentTarget.style.borderColor = "#7c3aed";
                     }}
                     onMouseLeave={(e) => {
                       e.currentTarget.style.transform = "translateY(0)";
-                      e.currentTarget.style.borderColor = "#222";
                     }}
                   >
                     <div style={{ position: "relative" }}>
@@ -233,18 +242,18 @@ function ContinueWatching() {
                           src={image}
                           alt={item.title}
                           referrerPolicy="no-referrer"
-                          style={{ width: "100%", height: "240px", objectFit: "cover", display: "block" }}
+                          style={{ width: "100%", height: "240px", objectFit: "cover", display: "block", background: "var(--bg-primary)" }}
                         />
                       ) : (
                         <div
                           style={{
                             width: "100%",
                             height: "240px",
-                            background: "#111",
+                            background: "var(--bg-primary)",
                             display: "flex",
                             alignItems: "center",
                             justifyContent: "center",
-                            color: "#555",
+                            color: "var(--text-muted)",
                             fontSize: "12px",
                           }}
                         >
@@ -258,7 +267,7 @@ function ContinueWatching() {
                           bottom: "10px",
                           left: "10px",
                           background: "rgba(0,0,0,0.8)",
-                          color: "#c4b5fd",
+                          color: "white",
                           padding: "3px 8px",
                           borderRadius: "5px",
                           fontSize: "11px",
@@ -276,14 +285,14 @@ function ContinueWatching() {
                             left: 0,
                             right: 0,
                             height: "4px",
-                            background: "rgba(255,255,255,0.12)",
+                            background: "var(--border-color)",
                           }}
                         >
                           <div
                             style={{
                               height: "100%",
                               width: `${progress.percent}%`,
-                              background: "linear-gradient(90deg, #7c3aed, #f43f5e)",
+                              background: "var(--accent-gradient)",
                             }}
                           />
                         </div>
@@ -295,6 +304,8 @@ function ContinueWatching() {
                         style={{
                           margin: "0 0 6px",
                           fontSize: "13.5px",
+                          fontWeight: 600,
+                          color: "var(--text-primary)",
                           whiteSpace: "nowrap",
                           overflow: "hidden",
                           textOverflow: "ellipsis",
@@ -303,11 +314,11 @@ function ContinueWatching() {
                         {item.title}
                       </h4>
                       {progress ? (
-                        <div style={{ fontSize: "12px", color: "#aaa" }}>
+                        <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
                           {progress.percent}% · {formatTime(progress.current)} / {formatTime(progress.duration)}
                         </div>
                       ) : (
-                        <div style={{ fontSize: "12px", color: "#666" }}>Episode {episode}</div>
+                        <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>Episode {episode}</div>
                       )}
                     </div>
                   </div>
@@ -315,6 +326,80 @@ function ContinueWatching() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* In-App Themed Clear Confirmation Modal */}
+      {showClearModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.7)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+            backdropFilter: "blur(6px)",
+          }}
+        >
+          <div
+            style={{
+              background: "var(--bg-surface)",
+              padding: "28px",
+              borderRadius: "14px",
+              border: "1px solid var(--border-color)",
+              maxWidth: "380px",
+              width: "90%",
+              textAlign: "center",
+              boxShadow: "0 20px 40px rgba(0,0,0,0.4)",
+            }}
+          >
+            <div style={{ fontSize: "32px", marginBottom: "8px" }}>🧹</div>
+            <h3 style={{ margin: "0 0 8px 0", color: "var(--text-primary)", fontSize: "18px", fontWeight: 700 }}>
+              Clear Continue Watching?
+            </h3>
+            <p style={{ color: "var(--text-muted)", fontSize: "13px", margin: "0 0 22px 0", lineHeight: 1.5 }}>
+              Your full Watch History is preserved. Shows can be restarted anytime from their details page.
+            </p>
+            <div style={{ display: "flex", gap: "10px", justifyContent: "center" }}>
+              <button
+                type="button"
+                disabled={isClearing}
+                onClick={confirmClearAll}
+                style={{
+                  padding: "10px 20px",
+                  background: "#ef4444",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "8px",
+                  cursor: "pointer",
+                  fontWeight: 600,
+                  fontSize: "13px",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                {isClearing ? "Clearing…" : "Yes, Clear All"}
+              </button>
+              <button
+                type="button"
+                disabled={isClearing}
+                onClick={() => setShowClearModal(false)}
+                style={{
+                  padding: "10px 20px",
+                  background: "var(--bg-primary)",
+                  color: "var(--text-primary)",
+                  border: "1px solid var(--border-color)",
+                  borderRadius: "8px",
+                  cursor: "pointer",
+                  fontSize: "13px",
+                  fontWeight: 500,
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

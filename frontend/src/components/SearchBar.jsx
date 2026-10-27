@@ -18,20 +18,20 @@ function SearchBar() {
   const trimmed = query.trim();
   const ready = trimmed.length >= MIN_CHARS;
 
+  // Real-time trending data fetch whenever search opens
   useEffect(() => {
-    let cancelled = false;
-    getTrending(1)
-      .then((list) => {
-        if (cancelled || !Array.isArray(list)) return;
-        setTrending(
-          list.slice(0, 10).map((a) => a.title_english || a.title).filter(Boolean)
-        );
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    if (open) {
+      getTrending(1)
+        .then((list) => {
+          if (Array.isArray(list) && list.length > 0) {
+            setTrending(
+              list.slice(0, 8).map((a) => a.title_english || a.title).filter(Boolean)
+            );
+          }
+        })
+        .catch(() => {});
+    }
+  }, [open]);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -49,9 +49,7 @@ function SearchBar() {
         setOpen(true);
       }
       if (e.key === "Escape") {
-        setOpen(false);
-        setQuery("");
-        setResults([]);
+        close();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -60,7 +58,7 @@ function SearchBar() {
 
   useEffect(() => {
     if (open) {
-      const t = setTimeout(() => inputRef.current?.focus(), 30);
+      const t = setTimeout(() => inputRef.current?.focus(), 40);
       return () => clearTimeout(t);
     }
   }, [open]);
@@ -109,6 +107,7 @@ function SearchBar() {
 
   return (
     <>
+      {/* Header Button */}
       <button
         type="button"
         onClick={() => setOpen(true)}
@@ -116,26 +115,27 @@ function SearchBar() {
           display: "flex",
           alignItems: "center",
           gap: "10px",
-          background: "#1a1a1a",
-          border: "1px solid #333",
+          background: "var(--bg-primary)",
+          border: "1px solid var(--border-color)",
           borderRadius: "8px",
-          padding: "8px 14px",
-          color: "#aaa",
+          padding: "7px 14px",
+          color: "var(--text-muted)",
           cursor: "pointer",
           fontSize: "13px",
           minWidth: "170px",
+          transition: "all 0.2s ease",
         }}
       >
         <span>🔍</span>
-        <span style={{ flex: 1, textAlign: "left" }}>Search...</span>
+        <span style={{ flex: 1, textAlign: "left", color: "var(--text-muted)" }}>Search...</span>
         <span
           style={{
-            background: "#2a2a2a",
-            border: "1px solid #444",
+            background: "var(--bg-surface)",
+            border: "1px solid var(--border-color)",
             borderRadius: "4px",
-            padding: "2px 7px",
+            padding: "1px 6px",
             fontSize: "11px",
-            color: "#ccc",
+            color: "var(--text-muted)",
             fontWeight: 600,
           }}
         >
@@ -143,13 +143,15 @@ function SearchBar() {
         </span>
       </button>
 
+      {/* Modal Dialog */}
       {open && (
         <div
           style={{
             position: "fixed",
             inset: 0,
             zIndex: 10000,
-            background: "rgba(0,0,0,0.8)",
+            background: "rgba(0,0,0,0.65)",
+            backdropFilter: "blur(6px)",
             display: "flex",
             justifyContent: "center",
             alignItems: "flex-start",
@@ -161,10 +163,10 @@ function SearchBar() {
             onClick={(e) => e.stopPropagation()}
             style={{
               width: "min(620px, 94vw)",
-              background: "#161616",
-              border: "1px solid #333",
+              background: "var(--bg-surface)",
+              border: "1px solid var(--border-color)",
               borderRadius: "12px",
-              boxShadow: "0 25px 50px rgba(0,0,0,0.6)",
+              boxShadow: "0 25px 50px rgba(0,0,0,0.45)",
               overflow: "hidden",
             }}
           >
@@ -173,8 +175,8 @@ function SearchBar() {
                 display: "flex",
                 alignItems: "center",
                 gap: "12px",
-                padding: "18px 20px",
-                borderBottom: "1px solid #2a2a2a",
+                padding: "16px 20px",
+                borderBottom: "1px solid var(--border-color)",
               }}
             >
               <span style={{ fontSize: "18px" }}>🔍</span>
@@ -195,15 +197,15 @@ function SearchBar() {
                   background: "transparent",
                   border: "none",
                   outline: "none",
-                  color: "#fff",
-                  fontSize: "18px",
+                  color: "var(--text-primary)",
+                  fontSize: "16px",
                 }}
               />
               <span
                 style={{
-                  background: "#2a2a2a",
-                  border: "1px solid #444",
-                  color: "#ccc",
+                  background: "var(--bg-primary)",
+                  border: "1px solid var(--border-color)",
+                  color: "var(--text-muted)",
                   fontSize: "11px",
                   padding: "4px 8px",
                   borderRadius: "5px",
@@ -215,39 +217,42 @@ function SearchBar() {
             </div>
 
             <div style={{ padding: "16px 20px 22px", maxHeight: "60vh", overflowY: "auto" }}>
+              {/* Clickable Trending Pill Boxes */}
               {!ready && (
                 <div>
                   <div
                     style={{
                       fontSize: "11px",
-                      color: "#666",
+                      color: "var(--text-muted)",
                       letterSpacing: "0.06em",
                       marginBottom: "12px",
                       fontWeight: 600,
                     }}
                   >
-                    TRENDING SEARCHES
+                    REAL-TIME TRENDING SEARCHES
                   </div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
                     {(trending.length
                       ? trending
-                      : ["One Piece", "Demon Slayer", "Jujutsu Kaisen"]
+                      : ["One Piece", "Demon Slayer", "Jujutsu Kaisen", "Solo Leveling", "Bleach"]
                     ).map((t) => (
                       <button
                         key={t}
                         type="button"
                         onClick={() => goSearch(t)}
                         style={{
-                          background: "#222",
-                          border: "1px solid #333",
-                          color: "#ccc",
+                          background: "var(--bg-primary)",
+                          border: "1px solid var(--border-color)",
+                          color: "var(--text-primary)",
                           borderRadius: "20px",
                           padding: "8px 14px",
                           fontSize: "13px",
                           cursor: "pointer",
+                          fontWeight: 500,
+                          transition: "all 0.15s ease",
                         }}
                       >
-                        {t}
+                        🔥 {t}
                       </button>
                     ))}
                   </div>
@@ -255,25 +260,26 @@ function SearchBar() {
               )}
 
               {ready && searching && (
-                <div style={{ textAlign: "center", color: "#888", padding: "24px 0" }}>
+                <div style={{ textAlign: "center", color: "var(--text-muted)", padding: "24px 0" }}>
                   Searching…
                 </div>
               )}
 
               {ready && !searching && results.length === 0 && (
-                <div style={{ textAlign: "center", color: "#666", padding: "24px 0" }}>
+                <div style={{ textAlign: "center", color: "var(--text-muted)", padding: "24px 0" }}>
                   No results for “{trimmed}”
                 </div>
               )}
 
+              {/* Rich Clickable Search Results */}
               {ready && !searching && results.length > 0 && (
-                <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                   {results.map((anime) => {
                     const img =
                       anime.images?.jpg?.image_url ||
                       anime.images?.jpg?.large_image_url ||
                       "";
-                    const title = anime.title_english || anime.title || "Untitled";
+                    const itemTitle = anime.title_english || anime.title || "Untitled";
                     return (
                       <button
                         key={anime.mal_id}
@@ -290,9 +296,9 @@ function SearchBar() {
                           padding: "8px",
                           cursor: "pointer",
                           textAlign: "left",
-                          color: "white",
+                          color: "var(--text-primary)",
                         }}
-                        onMouseEnter={(e) => (e.currentTarget.style.background = "#222")}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-primary)")}
                         onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                       >
                         {img ? (
@@ -312,7 +318,7 @@ function SearchBar() {
                             style={{
                               width: "42px",
                               height: "58px",
-                              background: "#2a2a2a",
+                              background: "var(--bg-primary)",
                               borderRadius: "4px",
                               flexShrink: 0,
                             }}
@@ -323,14 +329,15 @@ function SearchBar() {
                             style={{
                               fontSize: "14px",
                               fontWeight: 600,
+                              color: "var(--text-primary)",
                               whiteSpace: "nowrap",
                               overflow: "hidden",
                               textOverflow: "ellipsis",
                             }}
                           >
-                            {title}
+                            {itemTitle}
                           </div>
-                          <div style={{ fontSize: "12px", color: "#888", marginTop: "2px" }}>
+                          <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "2px" }}>
                             {anime.type || "Anime"}
                             {anime.score ? ` · ★ ${anime.score}` : ""}
                             {anime.episodes ? ` · ${anime.episodes} eps` : ""}
@@ -346,7 +353,7 @@ function SearchBar() {
                       marginTop: "10px",
                       width: "100%",
                       padding: "11px",
-                      background: "#7c3aed",
+                      background: "var(--accent-gradient)",
                       border: "none",
                       borderRadius: "8px",
                       color: "white",

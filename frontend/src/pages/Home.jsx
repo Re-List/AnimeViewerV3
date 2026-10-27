@@ -67,11 +67,10 @@ function Home() {
   const heroItems = data.airing.slice(0, HERO_SLIDES);
   const heroCount = heroItems.length;
 
-  // Always keep latest count available inside the interval
   const heroCountRef = useRef(heroCount);
   heroCountRef.current = heroCount;
 
-  // Auto-rotate
+  // Auto-rotate hero banner
   useEffect(() => {
     if (heroCount < 2) return;
 
@@ -105,12 +104,12 @@ function Home() {
     return (
       <div
         style={{
-          background: "#0a0a0a",
+          background: "var(--bg-primary)",
           minHeight: "80vh",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          color: "#666",
+          color: "var(--text-muted)",
         }}
       >
         Loading Re:List…
@@ -125,23 +124,23 @@ function Home() {
     return (
       <div
         style={{
-          background: "#0a0a0a",
+          background: "var(--bg-primary)",
           minHeight: "80vh",
           display: "flex",
           flexDirection: "column",
           gap: "16px",
           alignItems: "center",
           justifyContent: "center",
-          color: "#aaa",
+          color: "var(--text-muted)",
           textAlign: "center",
           padding: "20px",
         }}
       >
-        <div>Couldn’t load anime from AniList. Check your internet connection and try again.</div>
+        <div>Couldn’t load anime. Check your internet connection and try again.</div>
         <button
           onClick={retry}
           style={{
-            background: "#7c3aed",
+            background: "var(--accent-gradient)",
             color: "white",
             border: "none",
             borderRadius: "8px",
@@ -160,10 +159,11 @@ function Home() {
   const hero = heroItems[safeIndex];
 
   return (
-    <div style={{ background: "#0a0a0a", color: "white", paddingBottom: "80px" }}>
+    <div style={{ background: "var(--bg-primary)", color: "var(--text-primary)", paddingBottom: "80px", transition: "all 0.25s ease" }}>
       {/* ========== HERO BANNER ========== */}
       {hero && (
         <div style={{ position: "relative", height: "460px", overflow: "hidden", marginBottom: "28px" }}>
+          {/* Background image */}
           <div
             style={{
               position: "absolute",
@@ -171,20 +171,22 @@ function Home() {
               backgroundImage: `url(${hero.images?.jpg?.large_image_url || hero.images?.jpg?.image_url})`,
               backgroundSize: "cover",
               backgroundPosition: "center top",
-              filter: "brightness(0.35)",
+              filter: "brightness(0.38)",
               transform: "scale(1.04)",
             }}
           />
+
+          {/* Always-Readable Dark Scrim for Hero Text (Guarantees crisp readability on light & dark themes) */}
           <div
             style={{
               position: "absolute",
               inset: 0,
               background:
-                "linear-gradient(to right, rgba(10,10,10,0.95) 0%, rgba(10,10,10,0.55) 50%, transparent 75%), linear-gradient(to top, #0a0a0a 0%, transparent 45%)",
+                "linear-gradient(to right, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.6) 45%, transparent 75%), linear-gradient(to bottom, rgba(0,0,0,0.65) 0%, transparent 22%), linear-gradient(to top, var(--bg-primary) 0%, transparent 45%)",
             }}
           />
 
-          {/* Manual prev / next */}
+          {/* Manual prev / next controls */}
           {heroCount > 1 && (
             <>
               <button type="button" onClick={prevHero} aria-label="Previous slide" style={heroArrowStyle("left")}>
@@ -224,10 +226,13 @@ function Home() {
               {hero.score && (
                 <span
                   style={{
-                    background: "rgba(255,255,255,0.15)",
+                    background: "rgba(0,0,0,0.6)",
+                    color: "#fbbf24",
                     fontSize: "11px",
+                    fontWeight: "bold",
                     padding: "3px 8px",
                     borderRadius: "4px",
+                    border: "1px solid rgba(255,255,255,0.2)",
                   }}
                 >
                   ★ {hero.score}
@@ -241,6 +246,8 @@ function Home() {
                 margin: "0 0 12px 0",
                 lineHeight: 1.15,
                 fontWeight: 700,
+                color: "white",
+                textShadow: "0 2px 10px rgba(0,0,0,0.9), 0 1px 3px rgba(0,0,0,0.8)",
               }}
             >
               {hero.title_english || hero.title}
@@ -248,7 +255,7 @@ function Home() {
 
             <p
               style={{
-                color: "#bbb",
+                color: "rgba(255, 255, 255, 0.9)",
                 fontSize: "14px",
                 lineHeight: 1.5,
                 marginBottom: "22px",
@@ -256,6 +263,7 @@ function Home() {
                 WebkitLineClamp: 3,
                 WebkitBoxOrient: "vertical",
                 overflow: "hidden",
+                textShadow: "0 1px 6px rgba(0,0,0,0.9)",
               }}
             >
               {hero.synopsis || "No synopsis available."}
@@ -265,13 +273,14 @@ function Home() {
               <Link
                 to={`/player/${hero.mal_id}/1`}
                 style={{
-                  background: "#7c3aed",
+                  background: "var(--accent-gradient)",
                   color: "white",
                   padding: "12px 26px",
                   borderRadius: "8px",
                   textDecoration: "none",
                   fontWeight: "bold",
                   fontSize: "15px",
+                  boxShadow: "0 4px 14px rgba(0,0,0,0.3)",
                 }}
               >
                 ▶ Watch Now
@@ -279,14 +288,15 @@ function Home() {
               <Link
                 to={`/anime/${hero.mal_id}`}
                 style={{
-                  background: "rgba(255,255,255,0.1)",
+                  background: "rgba(255,255,255,0.12)",
                   color: "white",
                   padding: "12px 22px",
                   borderRadius: "8px",
                   textDecoration: "none",
                   fontWeight: "600",
                   fontSize: "15px",
-                  border: "1px solid rgba(255,255,255,0.15)",
+                  border: "1px solid rgba(255,255,255,0.2)",
+                  backdropFilter: "blur(6px)",
                 }}
               >
                 Details
@@ -294,7 +304,7 @@ function Home() {
             </div>
           </div>
 
-          {/* Dots */}
+          {/* Slider Dots */}
           <div
             style={{
               position: "absolute",
@@ -317,7 +327,7 @@ function Home() {
                   height: "8px",
                   borderRadius: "4px",
                   border: "none",
-                  background: i === safeIndex ? "#7c3aed" : "rgba(255,255,255,0.3)",
+                  background: i === safeIndex ? "var(--accent-gradient)" : "rgba(255,255,255,0.35)",
                   cursor: "pointer",
                   transition: "all 0.25s",
                 }}
@@ -341,9 +351,11 @@ function Home() {
             >
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <span style={{ fontSize: "15px" }}>▶</span>
-                <h2 style={{ margin: 0, fontSize: "17px", fontWeight: 600 }}>Continue Watching</h2>
+                <h2 style={{ margin: 0, fontSize: "17px", fontWeight: 600, color: "var(--text-primary)" }}>
+                  Continue Watching
+                </h2>
               </div>
-              <Link to="/continue" style={{ color: "#a78bfa", fontSize: "13px", textDecoration: "none" }}>
+              <Link to="/continue" style={{ color: "var(--text-muted)", fontSize: "13px", textDecoration: "none" }}>
                 See all
               </Link>
             </div>
@@ -355,9 +367,15 @@ function Home() {
                   <Link
                     key={item.anime_id}
                     to={`/player/${item.anime_id}/${item.episode || 1}`}
-                    style={{ textDecoration: "none", color: "white", flexShrink: 0, width: "130px" }}
+                    style={{ textDecoration: "none", color: "var(--text-primary)", flexShrink: 0, width: "130px" }}
                   >
-                    <div style={{ background: "#141414", borderRadius: "8px", overflow: "hidden" }}>
+                    <div style={{
+                      background: "var(--bg-surface)",
+                      border: "1px solid var(--border-color)",
+                      borderRadius: "8px",
+                      overflow: "hidden",
+                      transition: "all 0.2s ease"
+                    }}>
                       <div style={{ position: "relative" }}>
                         <img
                           src={item.image || ""}
@@ -368,15 +386,15 @@ function Home() {
                             height: "72px",
                             objectFit: "cover",
                             display: "block",
-                            background: "#111",
+                            background: "var(--bg-primary)",
                           }}
                         />
-                        <div style={{ height: "3px", background: "#2a2a2a" }}>
+                        <div style={{ height: "3px", background: "var(--border-color)" }}>
                           <div
                             style={{
                               height: "100%",
                               width: `${percent ?? 4}%`,
-                              background: "#7c3aed",
+                              background: "var(--accent-gradient)",
                             }}
                           />
                         </div>
@@ -385,6 +403,8 @@ function Home() {
                         <div
                           style={{
                             fontSize: "11px",
+                            fontWeight: 600,
+                            color: "var(--text-primary)",
                             whiteSpace: "nowrap",
                             overflow: "hidden",
                             textOverflow: "ellipsis",
@@ -393,7 +413,7 @@ function Home() {
                         >
                           {item.title}
                         </div>
-                        <div style={{ fontSize: "10px", color: "#777" }}>Ep {item.episode || 1}</div>
+                        <div style={{ fontSize: "10px", color: "var(--text-muted)" }}>Ep {item.episode || 1}</div>
                       </div>
                     </div>
                   </Link>
@@ -403,6 +423,7 @@ function Home() {
           </section>
         )}
 
+        {/* ========== CATEGORY SHELVES ========== */}
         <ShelfRow icon="●" iconColor="#f59e0b" title="Currently Airing" initial={data.airing} fetchPage={getTopAiring} />
         <ShelfRow icon="🔥" title="Trending Now" initial={data.trending} fetchPage={getTrending} />
         <ShelfRow icon="✨" title="This Season" initial={data.season} fetchPage={getThisSeason} />
@@ -453,7 +474,7 @@ function ShelfRow({ icon, iconColor, title, initial, fetchPage }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
           <span style={{ color: iconColor, fontSize: "18px" }}>{icon}</span>
-          <h2 style={{ margin: 0, fontSize: "20px" }}>{title}</h2>
+          <h2 style={{ margin: 0, fontSize: "20px", color: "var(--text-primary)" }}>{title}</h2>
         </div>
         <div style={{ display: "flex", gap: "6px" }}>
           <button onClick={() => scrollByDir(-1)} aria-label={`Scroll ${title} left`} style={navBtn}>
@@ -481,7 +502,7 @@ function ShelfRow({ icon, iconColor, title, initial, fetchPage }) {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              color: "#666",
+              color: "var(--text-muted)",
             }}
           >
             Loading…
@@ -510,13 +531,14 @@ function heroArrowStyle(side) {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
+    backdropFilter: "blur(4px)",
   };
 }
 
 const navBtn = {
-  background: "#1f1f1f",
-  border: "1px solid #333",
-  color: "white",
+  background: "var(--bg-surface)",
+  border: "1px solid var(--border-color)",
+  color: "var(--text-primary)",
   width: "32px",
   height: "32px",
   borderRadius: "6px",
@@ -525,6 +547,7 @@ const navBtn = {
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
+  transition: "all 0.2s ease",
 };
 
 export default Home;

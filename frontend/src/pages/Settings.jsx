@@ -7,10 +7,12 @@ import {
   importWatchlistBulk,
   removeFromWatchlist,
 } from "../services/watchlistService";
+import { THEMES, applyTheme, getCurrentTheme } from "../services/themeService";
 
 const SOURCES = ["MegaPlay", "Megavid", "Anixo", "VidHawk"];
 
 function Settings() {
+  const [currentThemeId, setCurrentThemeId] = useState(getCurrentTheme);
   const [globalLanguage, setGlobalLanguage] = useState(
     () => localStorage.getItem("globalLanguage") || "sub"
   );
@@ -42,7 +44,13 @@ function Settings() {
   const triggerToast = (msg) => {
     setToastMessage(msg);
     setShowToast(true);
-    setTimeout(() => setShowToast(false), 4000);
+    setTimeout(() => setShowToast(false), 3000);
+  };
+
+  const handleSelectTheme = (id, name) => {
+    applyTheme(id);
+    setCurrentThemeId(id);
+    triggerToast(`Theme applied: ${name}`);
   };
 
   const copySupportEmail = () => {
@@ -217,13 +225,14 @@ function Settings() {
   };
 
   const card = {
-    background: "#141414",
+    background: "var(--bg-surface)",
     borderRadius: "14px",
-    border: "1px solid #222",
+    border: "1px solid var(--border-color)",
     padding: "22px",
     minHeight: "160px",
     display: "flex",
     flexDirection: "column",
+    transition: "all 0.25s ease",
   };
 
   const pill = (active) => ({
@@ -234,22 +243,32 @@ function Settings() {
     fontWeight: 600,
     fontSize: "13px",
     color: "white",
-    background: active
-      ? "linear-gradient(135deg, #7c3aed 0%, #a855f7 50%, #f43f5e 100%)"
-      : "#1f1f1f",
+    background: active ? "var(--accent-gradient)" : "#222",
+    transition: "all 0.2s ease",
   });
 
-  const title = { fontSize: "16px", margin: "0 0 6px", fontWeight: 600 };
-  const desc = { color: "#777", fontSize: "13px", margin: "0 0 14px", lineHeight: 1.4 };
+  const title = {
+    fontSize: "16px",
+    margin: "0 0 6px",
+    fontWeight: 600,
+    color: "var(--text-primary)",
+  };
+  const desc = {
+    color: "var(--text-muted)",
+    fontSize: "13px",
+    margin: "0 0 14px",
+    lineHeight: 1.4,
+  };
 
   return (
     <div
       style={{
-        background: "#0a0a0a",
+        background: "var(--bg-primary)",
         minHeight: "100vh",
-        color: "white",
+        color: "var(--text-primary)",
         padding: "24px 28px 60px",
         position: "relative",
+        transition: "all 0.25s ease",
       }}
     >
       {showToast && (
@@ -258,13 +277,13 @@ function Settings() {
             position: "fixed",
             bottom: "24px",
             right: "24px",
-            background: "#1f1f1f",
-            border: "1px solid #333",
-            color: "white",
+            background: "var(--bg-surface)",
+            border: "1px solid var(--border-color)",
+            color: "var(--text-primary)",
             padding: "12px 18px",
             borderRadius: "10px",
             zIndex: 2000,
-            boxShadow: "0 10px 30px rgba(0,0,0,0.5)",
+            boxShadow: "0 10px 30px rgba(0,0,0,0.4)",
           }}
         >
           {toastMessage}
@@ -276,7 +295,7 @@ function Settings() {
           margin: "0 0 6px",
           fontSize: "24px",
           fontWeight: 700,
-          background: "linear-gradient(90deg, #fff 0%, #c084fc 50%, #f43f5e 100%)",
+          background: "var(--brand-gradient)",
           WebkitBackgroundClip: "text",
           WebkitTextFillColor: "transparent",
           backgroundClip: "text",
@@ -284,10 +303,108 @@ function Settings() {
       >
         Application Settings
       </h1>
-      <p style={{ margin: "0 0 24px", color: "#666", fontSize: "13px" }}>
-        Playback, data sync, and account tools
+      <p style={{ margin: "0 0 24px", color: "var(--text-muted)", fontSize: "13px" }}>
+        Custom themes, playback preferences, and account management
       </p>
 
+      {/* --- THEME CUSTOMIZATION BOX (Full Width) --- */}
+      <div
+        style={{
+          ...card,
+          marginBottom: "20px",
+          border: "1px solid var(--border-color)",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px", marginBottom: "14px" }}>
+          <div>
+            <h2 style={{ ...title, fontSize: "18px" }}>🎨 Color Themes & Gradients</h2>
+            <p style={{ ...desc, margin: 0 }}>
+              Select a gradient scheme to transform the entire application across all sub-pages.
+            </p>
+          </div>
+          <span
+            style={{
+              padding: "4px 10px",
+              borderRadius: "6px",
+              fontSize: "12px",
+              fontWeight: 600,
+              background: "var(--accent-gradient)",
+              color: "white",
+            }}
+          >
+            Active Theme: {THEMES.find((t) => t.id === currentThemeId)?.name}
+          </span>
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+            gap: "12px",
+          }}
+        >
+          {THEMES.map((t) => {
+            const isSelected = currentThemeId === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => handleSelectTheme(t.id, t.name)}
+                style={{
+                  background: isSelected ? "var(--bg-primary)" : "transparent",
+                  border: isSelected ? "2px solid #7c3aed" : "1px solid var(--border-color)",
+                  borderRadius: "10px",
+                  padding: "12px",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "12px",
+                  textAlign: "left",
+                  transition: "all 0.2s ease",
+                  transform: isSelected ? "scale(1.02)" : "scale(1)",
+                  boxShadow: isSelected ? "0 4px 14px rgba(124, 58, 237, 0.25)" : "none",
+                }}
+              >
+                {/* Gradient Swatch */}
+                <div
+                  style={{
+                    width: "36px",
+                    height: "36px",
+                    borderRadius: "50%",
+                    background: t.preview,
+                    boxShadow: "0 2px 6px rgba(0,0,0,0.3)",
+                    flexShrink: 0,
+                  }}
+                />
+                <div>
+                  <div
+                    style={{
+                      fontSize: "13px",
+                      fontWeight: 600,
+                      color: "var(--text-primary)",
+                      marginBottom: "2px",
+                    }}
+                  >
+                    {t.name}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "11px",
+                      color: "var(--text-muted)",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.5px",
+                    }}
+                  >
+                    {t.type} Mode
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* --- SETTINGS GRID --- */}
       <div
         style={{
           display: "grid",
@@ -324,15 +441,15 @@ function Settings() {
               <div
                 key={s.label}
                 style={{
-                  background: "#1a1a1a",
+                  background: "var(--bg-primary)",
                   borderRadius: "10px",
-                  border: "1px solid #2a2a2a",
+                  border: "1px solid var(--border-color)",
                   padding: "10px",
                   textAlign: "center",
                 }}
               >
                 <div style={{ fontSize: "18px", fontWeight: 700, color: s.color }}>{s.value}</div>
-                <div style={{ fontSize: "11px", color: "#888", marginTop: "2px" }}>{s.label}</div>
+                <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "2px" }}>{s.label}</div>
               </div>
             ))}
           </div>
@@ -390,20 +507,20 @@ function Settings() {
               { label: "Hold", value: watchlistStats.onhold, color: "#f59e0b" },
               { label: "Drop", value: watchlistStats.dropped, color: "#ef4444" },
               { label: "Plan", value: watchlistStats.planned, color: "#8b5cf6" },
-              { label: "Total", value: watchlistStats.total, color: "#e2e8f0" },
+              { label: "Total", value: watchlistStats.total, color: "var(--text-muted)" },
             ].map((s) => (
               <div
                 key={s.label}
                 style={{
-                  background: "#1a1a1a",
+                  background: "var(--bg-primary)",
                   borderRadius: "8px",
-                  border: "1px solid #2a2a2a",
+                  border: "1px solid var(--border-color)",
                   padding: "8px 6px",
                   textAlign: "center",
                 }}
               >
                 <div style={{ fontSize: "15px", fontWeight: 700, color: s.color }}>{s.value}</div>
-                <div style={{ fontSize: "10px", color: "#888" }}>{s.label}</div>
+                <div style={{ fontSize: "10px", color: "var(--text-muted)" }}>{s.label}</div>
               </div>
             ))}
           </div>
@@ -417,8 +534,6 @@ function Settings() {
             <label
               style={{
                 ...pill(false),
-                background: "#1f1f1f",
-                border: "1px solid #333",
                 display: "inline-flex",
                 alignItems: "center",
                 gap: "6px",
@@ -430,7 +545,7 @@ function Settings() {
             <button
               type="button"
               onClick={exportMAL}
-              style={{ ...pill(false), background: "#065f46", border: "1px solid #047857" }}
+              style={{ ...pill(false), background: "#065f46" }}
             >
               Export
             </button>
@@ -438,11 +553,9 @@ function Settings() {
         </div>
 
         {/* 8 Support & Feedback */}
-        <div style={{ ...card, border: "1px solid #2e1065", background: "#110d1a" }}>
+        <div style={card}>
           <h2 style={title}>📬 Help & Support</h2>
-          <p style={desc}>
-            For any issues, queries, or feature suggestions, reach out anytime:
-          </p>
+          <p style={desc}>For issues, queries, or feature suggestions:</p>
           <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "auto" }}>
             <a
               href="mailto:support.relist@gmail.com"
@@ -451,10 +564,10 @@ function Settings() {
                 alignItems: "center",
                 gap: "8px",
                 padding: "8px 12px",
-                background: "#1e1433",
-                border: "1px solid #7c3aed",
+                background: "var(--bg-primary)",
+                border: "1px solid var(--border-color)",
                 borderRadius: "8px",
-                color: "#d8b4fe",
+                color: "var(--text-primary)",
                 textDecoration: "none",
                 fontSize: "12px",
                 fontWeight: 600,
@@ -468,10 +581,10 @@ function Settings() {
               onClick={copySupportEmail}
               style={{
                 padding: "7px 12px",
-                background: "#1f1f1f",
-                border: "1px solid #333",
+                background: "var(--bg-surface)",
+                border: "1px solid var(--border-color)",
                 borderRadius: "8px",
-                color: "#bbb",
+                color: "var(--text-muted)",
                 fontSize: "11px",
                 cursor: "pointer",
                 fontWeight: 500,
@@ -483,22 +596,8 @@ function Settings() {
           </div>
         </div>
 
-        {/* 9 About */}
-        <div style={card}>
-          <h2 style={title}>ℹ️ About Re:List</h2>
-          <p style={{ ...desc, marginBottom: "8px" }}>
-            Local anime tracker with continue-watching, MAL sync, and multi-source player.
-          </p>
-          <div style={{ fontSize: "12px", color: "#555", lineHeight: 1.7, marginTop: "auto" }}>
-            Version 3 · Desktop Native
-            <br />
-            Press <strong style={{ color: "#aaa" }}>/</strong> or{" "}
-            <strong style={{ color: "#aaa" }}>Ctrl+K</strong> to search
-          </div>
-        </div>
-
-        {/* 10 Danger */}
-        <div style={{ ...card, border: "1px solid #7f1d1d", background: "#140f0f" }}>
+        {/* 9 Danger Zone */}
+        <div style={{ ...card, border: "1px solid #7f1d1d" }}>
           <h2 style={title}>🚨 Danger Zone</h2>
           <p style={desc}>Permanently wipe history and all collections.</p>
           <button
@@ -537,17 +636,17 @@ function Settings() {
         >
           <div
             style={{
-              background: "#161616",
+              background: "var(--bg-surface)",
               padding: "28px",
               borderRadius: "14px",
-              border: "1px solid #3f1f1f",
+              border: "1px solid var(--border-color)",
               maxWidth: "400px",
               width: "90%",
               textAlign: "center",
             }}
           >
             <h3 style={{ margin: "0 0 8px" }}>Wipe everything?</h3>
-            <p style={{ color: "#888", fontSize: "13px", margin: "0 0 20px" }}>
+            <p style={{ color: "var(--text-muted)", fontSize: "13px", margin: "0 0 20px" }}>
               History + all watchlist statuses will be deleted permanently.
             </p>
             <div style={{ display: "flex", gap: "10px", justifyContent: "center" }}>
@@ -575,7 +674,7 @@ function Settings() {
                   padding: "10px 18px",
                   background: "#222",
                   color: "white",
-                  border: "1px solid #333",
+                  border: "1px solid var(--border-color)",
                   borderRadius: "8px",
                   cursor: "pointer",
                 }}
