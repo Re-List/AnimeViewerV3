@@ -1,5 +1,6 @@
 // frontend/src/pages/Settings.jsx
 import { useState, useEffect } from "react";
+import axios from "axios";
 import { getHistory, removeHistoryItem } from "../services/historyService";
 import {
   getWatchlistByStatus,
@@ -7,12 +8,44 @@ import {
   importWatchlistBulk,
   removeFromWatchlist,
 } from "../services/watchlistService";
-import { THEMES, applyTheme, getCurrentTheme } from "../services/themeService";
+import { THEMES, applyTheme, applyCustomTheme, getCurrentTheme } from "../services/themeService";
+import {
+  getAniListToken,
+  saveAniListToken,
+  removeAniListToken,
+  getAniListUser,
+  fetchViewerProfile,
+} from "../services/anilistService";
+import {
+  getMALToken,
+  saveMALToken,
+  removeMALToken,
+  getMALUser,
+  isMALAutoSyncPaused,
+  setMALAutoSyncPaused,
+} from "../services/malService";
 
 const SOURCES = ["MegaPlay", "Megavid", "Anixo", "VidHawk"];
 
 function Settings() {
   const [currentThemeId, setCurrentThemeId] = useState(getCurrentTheme);
+  const [customColor1, setCustomColor1] = useState("#8b5cf6");
+  const [customColor2, setCustomColor2] = useState("#ec4899");
+  const [customIsDark, setCustomIsDark] = useState(true);
+
+  // AniList State
+  const [anilistToken, setAnilistToken] = useState(getAniListToken);
+  const [anilistUser, setAnilistUser] = useState(getAniListUser);
+  const [tokenInput, setTokenInput] = useState("");
+  const [connectingAniList, setConnectingAniList] = useState(false);
+
+  // MyAnimeList (MAL) State
+  const [malToken, setMalToken] = useState(getMALToken);
+  const [malUser, setMalUser] = useState(getMALUser);
+  const [authorizingMAL, setAuthorizingMAL] = useState(false);
+  const [syncingMALList, setSyncingMALList] = useState(false);
+  const [malSyncPaused, setMalSyncPaused] = useState(isMALAutoSyncPaused);
+
   const [globalLanguage, setGlobalLanguage] = useState(
     () => localStorage.getItem("globalLanguage") || "sub"
   );
@@ -44,13 +77,125 @@ function Settings() {
   const triggerToast = (msg) => {
     setToastMessage(msg);
     setShowToast(true);
-    setTimeout(() => setShowToast(false), 3000);
+    setTimeout(() => setShowToast(false), 3500);
   };
 
   const handleSelectTheme = (id, name) => {
     applyTheme(id);
     setCurrentThemeId(id);
     triggerToast(`Theme applied: ${name}`);
+  };
+
+  const handleApplyCustom = () => {
+    applyCustomTheme(customColor1, customColor2, customIsDark);
+    setCurrentThemeId("custom");
+    triggerToast("Custom gradient theme applied!");
+  };
+
+  // AniList connect/disconnect
+  const handleConnectAniList = async () => {
+    if (!tokenInput.trim()) return;
+    setConnectingAniList(true);
+    try {
+      saveAniListToken(tokenInput);
+      const profile = await fetchViewerProfile(tokenInput);
+      if (profile) {
+        setAnilistToken(tokenInput);
+        setAnilistUser(profile);
+        setTokenInput("");
+        triggerToast(`Connected to AniList as ${profile.name}!`);
+      } else {
+        removeAniListToken();
+        triggerToast("Invalid AniList token. Please verify and try again.");
+      }
+    } finally {
+      setConnectingAniList(false);
+    }
+  };
+
+  const handleDisconnectAniList = () => {
+    removeAniListToken();
+    setAnilistToken(null);
+    setAnilistUser(null);
+    triggerToast("Disconnected from AniList.");
+  };
+
+  // Toggle Pause / Resume for MAL Auto-Sync
+  const handleToggleMALPause = () => {
+    const next = !malSyncPaused;
+    setMALAutoSyncPaused(next);
+    setMalSyncPaused(next);
+    triggerToast(next ? "⏸ MAL Auto-Sync Paused" : "▶ MAL Auto-Sync Resumed");
+  };
+
+  // Manual Watchlist Sync from MAL into Re:List
+  const handleSyncMALWatchlist = async (tokenToUse) => {
+    const t = tokenToUse || malToken;
+    if (!t) return;
+    setSyncingMALList(true);
+    try {
+      const res = await axios.post("http://localhost:5000/auth/mal/sync-watchlist", { token: t });
+      if (res.data?.success) {
+        triggerToast(`🎉 Synced ${res.data.count} anime from MyAnimeList into Re:List!`);
+        setTimeout(() => window.location.reload(), 1500);
+      }
+    } catch {
+      triggerToast("Failed to pull watchlist from MAL.");
+    } finally {
+      setSyncingMALList(false);
+    }
+  };
+
+  // 1-Click Automated MAL Login
+  const handleStartMALLogin = () => {
+    setAuthorizingMAL(true);
+    const loginUrl = "http://localhost:5000/auth/mal/login";
+
+    if (window.electronAPI?.openExternal) {
+      window.electronAPI.openExternal(loginUrl);
+    } else {
+      window.open(loginUrl, "_blank");
+    }
+
+    triggerToast("Browser opened! Log in and click 'Allow' on MyAnimeList.");
+
+    let attempts = 0;
+    const interval = setInterval(async () => {
+      attempts++;
+      if (attempts > 60) {
+        clearInterval(interval);
+        setAuthorizingMAL(false);
+        return;
+      }
+
+      try {
+        const res = await axios.get("http://localhost:5000/auth/mal/status");
+        if (res.data?.token) {
+          clearInterval(interval);
+          const token = res.data.token;
+          const user = res.data.user || { name: "User" };
+
+          saveMALToken(token);
+          setMalToken(token);
+          setMalUser(user);
+          localStorage.setItem("mal_user", JSON.stringify(user));
+          setAuthorizingMAL(false);
+          triggerToast(`Connected to MyAnimeList as ${user.name}!`);
+
+          handleSyncMALWatchlist(token);
+        }
+      } catch {}
+    }, 1200);
+  };
+
+  const handleDisconnectMAL = async () => {
+    removeMALToken();
+    setMalToken(null);
+    setMalUser(null);
+    try {
+      await axios.post("http://localhost:5000/auth/mal/clear");
+    } catch {}
+    triggerToast("Disconnected from MyAnimeList.");
   };
 
   const copySupportEmail = () => {
@@ -243,7 +388,7 @@ function Settings() {
     fontWeight: 600,
     fontSize: "13px",
     color: "white",
-    background: active ? "var(--accent-gradient)" : "#222",
+    background: active ? "var(--accent-gradient)" : "var(--bg-primary)",
     transition: "all 0.2s ease",
   });
 
@@ -304,22 +449,16 @@ function Settings() {
         Application Settings
       </h1>
       <p style={{ margin: "0 0 24px", color: "var(--text-muted)", fontSize: "13px" }}>
-        Custom themes, playback preferences, and account management
+        Custom themes, account integrations, playback preferences, and tools
       </p>
 
-      {/* --- THEME CUSTOMIZATION BOX (Full Width) --- */}
-      <div
-        style={{
-          ...card,
-          marginBottom: "20px",
-          border: "1px solid var(--border-color)",
-        }}
-      >
+      {/* --- PRESET THEMES BOX --- */}
+      <div style={{ ...card, marginBottom: "16px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px", marginBottom: "14px" }}>
           <div>
             <h2 style={{ ...title, fontSize: "18px" }}>🎨 Color Themes & Gradients</h2>
             <p style={{ ...desc, margin: 0 }}>
-              Select a gradient scheme to transform the entire application across all sub-pages.
+              Select a preset gradient scheme to transform the entire application.
             </p>
           </div>
           <span
@@ -332,17 +471,11 @@ function Settings() {
               color: "white",
             }}
           >
-            Active Theme: {THEMES.find((t) => t.id === currentThemeId)?.name}
+            Active Theme: {currentThemeId === "custom" ? "Custom Gradient" : THEMES.find((t) => t.id === currentThemeId)?.name}
           </span>
         </div>
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
-            gap: "12px",
-          }}
-        >
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "10px" }}>
           {THEMES.map((t) => {
             const isSelected = currentThemeId === t.id;
             return (
@@ -354,49 +487,19 @@ function Settings() {
                   background: isSelected ? "var(--bg-primary)" : "transparent",
                   border: isSelected ? "2px solid #7c3aed" : "1px solid var(--border-color)",
                   borderRadius: "10px",
-                  padding: "12px",
+                  padding: "10px",
                   cursor: "pointer",
                   display: "flex",
                   alignItems: "center",
-                  gap: "12px",
+                  gap: "10px",
                   textAlign: "left",
                   transition: "all 0.2s ease",
-                  transform: isSelected ? "scale(1.02)" : "scale(1)",
-                  boxShadow: isSelected ? "0 4px 14px rgba(124, 58, 237, 0.25)" : "none",
                 }}
               >
-                {/* Gradient Swatch */}
-                <div
-                  style={{
-                    width: "36px",
-                    height: "36px",
-                    borderRadius: "50%",
-                    background: t.preview,
-                    boxShadow: "0 2px 6px rgba(0,0,0,0.3)",
-                    flexShrink: 0,
-                  }}
-                />
+                <div style={{ width: "32px", height: "32px", borderRadius: "50%", background: t.preview, flexShrink: 0 }} />
                 <div>
-                  <div
-                    style={{
-                      fontSize: "13px",
-                      fontWeight: 600,
-                      color: "var(--text-primary)",
-                      marginBottom: "2px",
-                    }}
-                  >
-                    {t.name}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: "11px",
-                      color: "var(--text-muted)",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.5px",
-                    }}
-                  >
-                    {t.type} Mode
-                  </div>
+                  <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)" }}>{t.name}</div>
+                  <div style={{ fontSize: "11px", color: "var(--text-muted)", textTransform: "uppercase" }}>{t.type}</div>
                 </div>
               </button>
             );
@@ -404,16 +507,267 @@ function Settings() {
         </div>
       </div>
 
+      {/* --- CUSTOM GRADIENT CREATOR BOX --- */}
+      <div style={{ ...card, marginBottom: "24px" }}>
+        <h2 style={{ ...title, fontSize: "18px" }}>🖌️ Custom Gradient Creator</h2>
+        <p style={desc}>
+          Pick any two hex colors to create your own personalized gradient theme.
+        </p>
+        <div style={{ display: "flex", alignItems: "center", gap: "18px", flexWrap: "wrap", marginTop: "auto" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <label style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)" }}>Color 1:</label>
+            <input
+              type="color"
+              value={customColor1}
+              onChange={(e) => setCustomColor1(e.target.value)}
+              style={{ width: "40px", height: "36px", border: "none", borderRadius: "6px", cursor: "pointer", background: "transparent" }}
+            />
+            <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>{customColor1}</span>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <label style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)" }}>Color 2:</label>
+            <input
+              type="color"
+              value={customColor2}
+              onChange={(e) => setCustomColor2(e.target.value)}
+              style={{ width: "40px", height: "36px", border: "none", borderRadius: "6px", cursor: "pointer", background: "transparent" }}
+            />
+            <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>{customColor2}</span>
+          </div>
+
+          <div style={{ display: "flex", gap: "8px" }}>
+            <button type="button" onClick={() => setCustomIsDark(true)} style={pill(customIsDark)}>
+              Dark Base
+            </button>
+            <button type="button" onClick={() => setCustomIsDark(false)} style={pill(!customIsDark)}>
+              Light Base
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleApplyCustom}
+            style={{
+              padding: "10px 22px",
+              borderRadius: "8px",
+              border: "none",
+              color: "white",
+              fontWeight: 700,
+              fontSize: "13px",
+              cursor: "pointer",
+              background: `linear-gradient(135deg, ${customColor1}, ${customColor2})`,
+              boxShadow: "0 4px 14px rgba(0,0,0,0.2)",
+            }}
+          >
+            Apply Custom Gradient
+          </button>
+        </div>
+      </div>
+
       {/* --- SETTINGS GRID --- */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(3, 1fr)",
-          gap: "14px",
-          alignItems: "stretch",
-        }}
-      >
-        {/* 1 Playback */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "14px", alignItems: "stretch" }}>
+        {/* AniList Live Auto-Sync */}
+        <div style={card}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+            <h2 style={{ ...title, margin: 0 }}>🌐 AniList Auto-Sync</h2>
+            {anilistUser && (
+              <span style={{ fontSize: "11px", color: "#10b981", fontWeight: 700 }}>● Connected</span>
+            )}
+          </div>
+          <p style={desc}>
+            Automatically update your AniList profile whenever you watch an episode.
+          </p>
+
+          <div style={{ marginTop: "auto" }}>
+            {anilistUser ? (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", background: "var(--bg-primary)", padding: "10px 14px", borderRadius: "10px", border: "1px solid var(--border-color)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                  <img
+                    src={anilistUser.avatar?.medium || anilistUser.avatar?.large}
+                    alt={anilistUser.name}
+                    style={{ width: "34px", height: "34px", borderRadius: "50%", objectFit: "cover" }}
+                  />
+                  <div>
+                    <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-primary)" }}>
+                      {anilistUser.name}
+                    </div>
+                    <div style={{ fontSize: "11px", color: "#10b981" }}>Auto-Sync Active</div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleDisconnectAniList}
+                  style={{ padding: "6px 12px", background: "transparent", color: "#f87171", border: "1px solid #7f1d1d", borderRadius: "6px", cursor: "pointer", fontSize: "11px", fontWeight: 600 }}
+                >
+                  Disconnect
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <input
+                    type="password"
+                    placeholder="Paste AniList Token..."
+                    value={tokenInput}
+                    onChange={(e) => setTokenInput(e.target.value)}
+                    style={{ flex: 1, padding: "8px 12px", background: "var(--bg-primary)", border: "1px solid var(--border-color)", borderRadius: "6px", color: "var(--text-primary)", fontSize: "12px", outline: "none" }}
+                  />
+                  <button
+                    type="button"
+                    disabled={connectingAniList}
+                    onClick={handleConnectAniList}
+                    style={{ padding: "8px 14px", background: "var(--accent-gradient)", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontWeight: 700 }}
+                  >
+                    {connectingAniList ? "…" : "Link"}
+                  </button>
+                </div>
+                <a
+                  href="https://anilist.co/api/v2/oauth/authorize?client_id=20815&response_type=token"
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(e) => {
+                    if (window.electronAPI?.openExternal) {
+                      e.preventDefault();
+                      window.electronAPI.openExternal("https://anilist.co/api/v2/oauth/authorize?client_id=20815&response_type=token");
+                    }
+                  }}
+                  style={{ fontSize: "11px", color: "#38bdf8", textDecoration: "none", cursor: "pointer" }}
+                >
+                  🔑 Click here to generate your AniList token ↗
+                </a>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* MyAnimeList (MAL) 1-Click Sign In + Pause & Manual Sync */}
+        <div style={card}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+            <h2 style={{ ...title, margin: 0 }}>⭐ MyAnimeList Sync</h2>
+            {(malUser || malToken) && (
+              <span style={{ fontSize: "11px", color: malSyncPaused ? "#f59e0b" : "#10b981", fontWeight: 700 }}>
+                {malSyncPaused ? "⏸ Auto-Sync Paused" : "● Auto-Sync Active"}
+              </span>
+            )}
+          </div>
+          <p style={desc}>
+            Auto-sync your watch progress and pull your full MAL watchlist into Re:List.
+          </p>
+
+          <div style={{ marginTop: "auto" }}>
+            {(malUser || malToken) ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                {/* User info bar */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", background: "var(--bg-primary)", padding: "10px 14px", borderRadius: "10px", border: "1px solid var(--border-color)" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    {malUser?.picture ? (
+                      <img
+                        src={malUser.picture}
+                        alt={malUser.name}
+                        style={{ width: "34px", height: "34px", borderRadius: "50%", objectFit: "cover" }}
+                      />
+                    ) : (
+                      <div style={{ width: "34px", height: "34px", borderRadius: "50%", background: "#2e51a2", display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontWeight: "bold", fontSize: "12px" }}>
+                        MAL
+                      </div>
+                    )}
+                    <div>
+                      <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-primary)" }}>
+                        {malUser?.name || "Connected Account"}
+                      </div>
+                      <div style={{ fontSize: "11px", color: malSyncPaused ? "#f59e0b" : "#10b981" }}>
+                        {malSyncPaused ? "Auto-Sync is Paused" : "Auto-Sync is Active"}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleDisconnectMAL}
+                    style={{ padding: "6px 12px", background: "transparent", color: "#f87171", border: "1px solid #7f1d1d", borderRadius: "6px", cursor: "pointer", fontSize: "11px", fontWeight: 600 }}
+                  >
+                    Disconnect
+                  </button>
+                </div>
+
+                {/* Control Buttons: Pause / Resume & Manual Sync */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+                  <button
+                    type="button"
+                    onClick={handleToggleMALPause}
+                    style={{
+                      padding: "8px 12px",
+                      background: malSyncPaused ? "var(--accent-gradient)" : "var(--bg-primary)",
+                      border: "1px solid var(--border-color)",
+                      borderRadius: "8px",
+                      color: malSyncPaused ? "white" : "var(--text-primary)",
+                      fontSize: "11.5px",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "5px",
+                    }}
+                  >
+                    <span>{malSyncPaused ? "▶ Resume Sync" : "⏸ Pause Sync"}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={syncingMALList}
+                    onClick={() => handleSyncMALWatchlist()}
+                    style={{
+                      padding: "8px 12px",
+                      background: "var(--bg-primary)",
+                      border: "1px solid var(--border-color)",
+                      borderRadius: "8px",
+                      color: "var(--text-primary)",
+                      fontSize: "11.5px",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "5px",
+                    }}
+                  >
+                    <span>🔄</span>
+                    <span>{syncingMALList ? "Pulling…" : "Manual Sync"}</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                disabled={authorizingMAL}
+                onClick={handleStartMALLogin}
+                style={{
+                  width: "100%",
+                  padding: "11px 16px",
+                  background: "#2e51a2",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "8px",
+                  cursor: "pointer",
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "8px",
+                  transition: "all 0.2s ease",
+                  boxShadow: "0 4px 14px rgba(46, 81, 162, 0.3)",
+                }}
+              >
+                <span>⭐</span>
+                <span>{authorizingMAL ? "Waiting for authorization…" : "Sign in with MyAnimeList"}</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Playback */}
         <div style={card}>
           <h2 style={title}>Playback Preferences</h2>
           <p style={desc}>Default audio language for new episodes.</p>
@@ -427,7 +781,7 @@ function Settings() {
           </div>
         </div>
 
-        {/* 2 Quick Stats */}
+        {/* Quick Stats */}
         <div style={card}>
           <h2 style={title}>📊 Quick Stats</h2>
           <p style={desc}>Snapshot of your list and history.</p>
@@ -438,16 +792,7 @@ function Settings() {
               { label: "Planned", value: watchlistStats.planned, color: "#8b5cf6" },
               { label: "History", value: history.length, color: "#94a3b8" },
             ].map((s) => (
-              <div
-                key={s.label}
-                style={{
-                  background: "var(--bg-primary)",
-                  borderRadius: "10px",
-                  border: "1px solid var(--border-color)",
-                  padding: "10px",
-                  textAlign: "center",
-                }}
-              >
+              <div key={s.label} style={{ background: "var(--bg-primary)", borderRadius: "10px", border: "1px solid var(--border-color)", padding: "10px", textAlign: "center" }}>
                 <div style={{ fontSize: "18px", fontWeight: 700, color: s.color }}>{s.value}</div>
                 <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "2px" }}>{s.label}</div>
               </div>
@@ -455,7 +800,7 @@ function Settings() {
           </div>
         </div>
 
-        {/* 3 Default source */}
+        {/* Default Source */}
         <div style={card}>
           <h2 style={title}>Default Video Source</h2>
           <p style={desc}>Used first when you open the player.</p>
@@ -468,7 +813,7 @@ function Settings() {
           </div>
         </div>
 
-        {/* 4 Theater */}
+        {/* Theater */}
         <div style={card}>
           <h2 style={title}>🎬 Theater Mode</h2>
           <p style={desc}>Open the player expanded by default.</p>
@@ -482,7 +827,7 @@ function Settings() {
           </div>
         </div>
 
-        {/* 5 Auto-next */}
+        {/* Auto Next */}
         <div style={card}>
           <h2 style={title}>Auto-Next Episode</h2>
           <p style={desc}>Jump to the next episode near the end of playback.</p>
@@ -496,63 +841,22 @@ function Settings() {
           </div>
         </div>
 
-        {/* 6 Full distribution */}
+        {/* MAL XML Backup */}
         <div style={card}>
-          <h2 style={title}>📊 Full Distribution</h2>
-          <p style={desc}>All collection buckets.</p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px", marginTop: "auto" }}>
-            {[
-              { label: "Watching", value: watchlistStats.watching, color: "#3b82f6" },
-              { label: "Done", value: watchlistStats.completed, color: "#10b981" },
-              { label: "Hold", value: watchlistStats.onhold, color: "#f59e0b" },
-              { label: "Drop", value: watchlistStats.dropped, color: "#ef4444" },
-              { label: "Plan", value: watchlistStats.planned, color: "#8b5cf6" },
-              { label: "Total", value: watchlistStats.total, color: "var(--text-muted)" },
-            ].map((s) => (
-              <div
-                key={s.label}
-                style={{
-                  background: "var(--bg-primary)",
-                  borderRadius: "8px",
-                  border: "1px solid var(--border-color)",
-                  padding: "8px 6px",
-                  textAlign: "center",
-                }}
-              >
-                <div style={{ fontSize: "15px", fontWeight: 700, color: s.color }}>{s.value}</div>
-                <div style={{ fontSize: "10px", color: "var(--text-muted)" }}>{s.label}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* 7 MAL Sync */}
-        <div style={card}>
-          <h2 style={title}>📁 MAL Data Sync</h2>
-          <p style={desc}>Import or export XML backups mapped to MAL.</p>
+          <h2 style={title}>📁 MAL XML Backup</h2>
+          <p style={desc}>Manual file backup import or export.</p>
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "auto" }}>
-            <label
-              style={{
-                ...pill(false),
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "6px",
-              }}
-            >
+            <label style={{ ...pill(false), display: "inline-flex", alignItems: "center", gap: "6px" }}>
               Import
               <input type="file" accept=".xml" onChange={importMAL} style={{ display: "none" }} />
             </label>
-            <button
-              type="button"
-              onClick={exportMAL}
-              style={{ ...pill(false), background: "#065f46" }}
-            >
+            <button type="button" onClick={exportMAL} style={{ ...pill(false), background: "#065f46" }}>
               Export
             </button>
           </div>
         </div>
 
-        {/* 8 Support & Feedback */}
+        {/* Help & Support */}
         <div style={card}>
           <h2 style={title}>📬 Help & Support</h2>
           <p style={desc}>For issues, queries, or feature suggestions:</p>
@@ -596,7 +900,7 @@ function Settings() {
           </div>
         </div>
 
-        {/* 9 Danger Zone */}
+        {/* Danger Zone */}
         <div style={{ ...card, border: "1px solid #7f1d1d" }}>
           <h2 style={title}>🚨 Danger Zone</h2>
           <p style={desc}>Permanently wipe history and all collections.</p>
@@ -622,29 +926,8 @@ function Settings() {
       </div>
 
       {showClearModal && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.75)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 3000,
-            backdropFilter: "blur(4px)",
-          }}
-        >
-          <div
-            style={{
-              background: "var(--bg-surface)",
-              padding: "28px",
-              borderRadius: "14px",
-              border: "1px solid var(--border-color)",
-              maxWidth: "400px",
-              width: "90%",
-              textAlign: "center",
-            }}
-          >
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000, backdropFilter: "blur(4px)" }}>
+          <div style={{ background: "var(--bg-surface)", padding: "28px", borderRadius: "14px", border: "1px solid var(--border-color)", maxWidth: "400px", width: "90%", textAlign: "center" }}>
             <h3 style={{ margin: "0 0 8px" }}>Wipe everything?</h3>
             <p style={{ color: "var(--text-muted)", fontSize: "13px", margin: "0 0 20px" }}>
               History + all watchlist statuses will be deleted permanently.
@@ -654,15 +937,7 @@ function Settings() {
                 type="button"
                 disabled={isClearing}
                 onClick={executeClearAllData}
-                style={{
-                  padding: "10px 18px",
-                  background: "#ef4444",
-                  color: "white",
-                  border: "none",
-                  borderRadius: "8px",
-                  fontWeight: 700,
-                  cursor: "pointer",
-                }}
+                style={{ padding: "10px 18px", background: "#ef4444", color: "white", border: "none", borderRadius: "8px", fontWeight: 700, cursor: "pointer" }}
               >
                 {isClearing ? "Wiping…" : "Yes, wipe all"}
               </button>
@@ -670,14 +945,7 @@ function Settings() {
                 type="button"
                 disabled={isClearing}
                 onClick={() => setShowClearModal(false)}
-                style={{
-                  padding: "10px 18px",
-                  background: "#222",
-                  color: "white",
-                  border: "1px solid var(--border-color)",
-                  borderRadius: "8px",
-                  cursor: "pointer",
-                }}
+                style={{ padding: "10px 18px", background: "#222", color: "white", border: "1px solid var(--border-color)", borderRadius: "8px", cursor: "pointer" }}
               >
                 Cancel
               </button>

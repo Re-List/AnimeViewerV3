@@ -7,6 +7,8 @@ import {
   getEpisodeCount,
   peekAnimeDetails,
 } from "../services/animeService";
+import { syncEpisodeToAniList } from "../services/anilistService";
+import { syncEpisodeToMAL } from "../services/malService";
 
 const EMBED_SOURCES = [
   {
@@ -28,7 +30,6 @@ const EMBED_SOURCES = [
 ];
 
 const RANGE_SIZE = 100;
-const COUNTDOWN_SECONDS = 12;
 
 function readWatched(id) {
   try {
@@ -80,8 +81,6 @@ function Player() {
     () => localStorage.getItem("playerTheater") === "1"
   );
   const [range, setRange] = useState(() => Math.floor((currentEp - 1) / RANGE_SIZE));
-  const [countdown, setCountdown] = useState(null);
-  const [stalled, setStalled] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -109,16 +108,30 @@ function Player() {
 
   const title = anime?.title_english || anime?.title || "";
 
+  // 1. Local history, 2. Discord RPC, 3. AniList Sync, 4. MAL Sync
   useEffect(() => {
     if (!anime) return;
     const img =
       anime.images?.jpg?.large_image_url ||
       anime.images?.jpg?.image_url ||
       "";
+
     addHistory(id, title, img, currentEp).catch((err) =>
       console.error("Could not record history:", err)
     );
-  }, [id, currentEp, anime, title]);
+
+    // Discord status with current anime poster
+    window.electronAPI?.setDiscordStatus(title, currentEp, img);
+
+    // Sync to external accounts in real time
+    const isCompleted = knownCount && currentEp >= knownCount;
+    syncEpisodeToAniList(id, currentEp, isCompleted);
+    syncEpisodeToMAL(id, currentEp, isCompleted);
+
+    return () => {
+      window.electronAPI?.clearDiscordStatus();
+    };
+  }, [id, currentEp, anime, title, knownCount]);
 
   useEffect(() => {
     setWatched((prev) => {
@@ -136,22 +149,18 @@ function Player() {
   const hasNext = knownCount ? currentEp < knownCount : true;
 
   const goToEpisode = (ep) => {
-    setCountdown(null);
-    setStalled(false);
     navigate(`/player/${id}/${ep}`);
   };
 
   const selectSource = (idx) => {
     setCurrentSource(idx);
     localStorage.setItem("playerSource", String(idx));
-    setStalled(false);
   };
 
   const toggleLanguage = () => {
     const next = language === "sub" ? "dub" : "sub";
     setLanguage(next);
     localStorage.setItem("globalLanguage", next);
-    setStalled(false);
   };
 
   const toggleTheater = () => {
@@ -180,7 +189,7 @@ function Player() {
       </div>
 
       <div style={{ display: "flex", gap: "16px", alignItems: "flex-start", flexWrap: isTheaterMode ? "wrap" : "nowrap" }}>
-        {/* LEFT — Episode Selector Sidebar */}
+        {/* LEFT — Episode Selector */}
         <div
           style={{
             width: isTheaterMode ? "100%" : "280px",
@@ -287,7 +296,7 @@ function Player() {
           </div>
         </div>
 
-        {/* RIGHT — Player Container & Controls */}
+        {/* RIGHT — Player */}
         <div style={{ flex: 1, minWidth: 0, width: "100%" }}>
           <div
             style={{
@@ -311,9 +320,21 @@ function Player() {
               allow="autoplay; fullscreen; encrypted-media"
               allowFullScreen
             />
+
+            {/* Instant Background Pre-buffering for Next Episode */}
+            {hasNext && (
+              <iframe
+                key={`prebuffer-${currentEp + 1}`}
+                title="Prebuffer Next Episode"
+                src={buildEmbedUrl(source, id, currentEp + 1, language)}
+                style={{ display: "none", width: 0, height: 0, border: 0 }}
+                tabIndex={-1}
+                aria-hidden="true"
+              />
+            )}
           </div>
 
-          {/* Bottom Control Bar */}
+          {/* Controls */}
           <div
             style={{
               display: "flex",
@@ -345,7 +366,7 @@ function Player() {
               ← Previous
             </button>
 
-            {/* Sub / Dub Selector */}
+            {/* Sub / Dub */}
             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
               <span style={{ fontWeight: "600", fontSize: "13px", color: "var(--text-primary)" }}>SUB</span>
               <div
@@ -414,7 +435,7 @@ function Player() {
             </div>
           </div>
 
-          {/* Sources Selector Box */}
+          {/* Sources */}
           <div
             style={{
               background: "var(--bg-surface)",

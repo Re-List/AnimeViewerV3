@@ -1,6 +1,6 @@
 {
   "name": "re-list",
-  "version": "1.0.1",
+  "version": "1.2.0",
   "description": "Re:List Anime Tracker",
   "author": "Re-List",
   "main": "main.js",
@@ -12,6 +12,7 @@
   "dependencies": {
     "axios": "^1.16.1",
     "cors": "^2.8.6",
+    "discord-rpc": "^4.0.1",
     "electron-updater": "^6.3.9",
     "express": "^5.2.1",
     "sqlite": "^5.1.1",
@@ -41,7 +42,8 @@
     ],
     "win": {
       "target": "nsis",
-      "icon": "logo.png"
+      "icon": "logo.png",
+      "artifactName": "ReList-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,

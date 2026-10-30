@@ -1,3 +1,4 @@
+// frontend/src/services/animeService.js
 import axios from "axios";
 
 const CACHE_TTL = 1000 * 60 * 60;
@@ -67,7 +68,7 @@ function stripHtml(text) {
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<[^>]+>/g, "")
     .replace(/&(quot|#0?39|apos|lt|gt|nbsp);/g, (m) => HTML_ENTITIES[m] ?? m)
-    .replace(/&amp;/g, "&"); // last, so "&amp;quot;" is not double-decoded
+    .replace(/&amp;/g, "&");
 }
 
 const STATUS_LABEL = {
@@ -88,7 +89,6 @@ const FORMAT_LABEL = {
   MUSIC: "Music",
 };
 
-// Same shape the rest of the app already expects from Jikan.
 export function toJikanShape(media) {
   if (!media?.idMal) return null;
   const cover = media.coverImage?.extraLarge || media.coverImage?.large || "";
@@ -105,7 +105,6 @@ export function toJikanShape(media) {
     },
     type: FORMAT_LABEL[media.format] || media.format || null,
     episodes: media.episodes || null,
-    // Episode that airs next (so episodes already out = next_episode - 1).
     next_episode: media.nextAiringEpisode?.episode || null,
     synopsis: stripHtml(media.description),
     score: media.averageScore ? media.averageScore / 10 : null,
@@ -118,7 +117,6 @@ export function toJikanShape(media) {
   };
 }
 
-// How many episodes can be watched right now. Returns null when unknown.
 export function getEpisodeCount(anime) {
   if (!anime) return null;
   if (anime.episodes >= 1) return anime.episodes;
@@ -154,8 +152,6 @@ async function anilist(query, variables) {
   return response.data?.data;
 }
 
-// Shared by every "list of anime" query. Never throws: a failed row simply
-// comes back empty so one bad request cannot blank the whole Home page.
 async function fetchList(cacheKey, query, variables) {
   const cached = getCache(cacheKey);
   if (cached) return cached;
@@ -196,7 +192,6 @@ export function getTopAiring(page = 1) {
   );
 }
 
-// Trending across all anime (not limited to what is currently airing).
 export function getTrending(page = 1) {
   return fetchList(
     `trending_v3_${page}`,
@@ -234,7 +229,6 @@ export function getTopRated(page = 1) {
   );
 }
 
-// Synchronous peek at the cache (null if nothing cached yet).
 export function peekAnimeDetails(id) {
   return id ? getCache(`anime_v3_${id}`) : null;
 }
@@ -290,6 +284,58 @@ export async function getAnimeRelations(id) {
     setCache(cacheKey, list);
     return list;
   } catch {
+    return [];
+  }
+}
+
+// Queries live weekly broadcast calendar from AniList
+export async function getAiringSchedule(dayOffset = 0) {
+  const now = new Date();
+  const targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + dayOffset);
+  const startOfDay = Math.floor(new Date(targetDate.setHours(0, 0, 0, 0)).getTime() / 1000);
+  const endOfDay = Math.floor(new Date(targetDate.setHours(23, 59, 59, 999)).getTime() / 1000);
+
+  const query = `
+    query ($start: Int, $end: Int) {
+      Page(page: 1, perPage: 50) {
+        airingSchedules(airingAt_greater: $start, airingAt_lesser: $end, sort: TIME) {
+          id
+          airingAt
+          timeUntilAiring
+          episode
+          media {
+            idMal
+            title { english romaji }
+            coverImage { large extraLarge }
+            format
+            genres
+            status
+          }
+        }
+      }
+    }
+  `;
+
+  try {
+    const res = await axios.post(ANILIST, {
+      query,
+      variables: { start: startOfDay, end: endOfDay },
+    });
+    const schedules = res.data?.data?.Page?.airingSchedules || [];
+    return schedules
+      .filter((s) => s.media?.idMal && s.media?.format === "TV")
+      .map((s) => ({
+        id: s.id,
+        mal_id: s.media.idMal,
+        episode: s.episode,
+        airingAt: s.airingAt,
+        timeUntilAiring: s.timeUntilAiring,
+        title: s.media.title.english || s.media.title.romaji,
+        image: s.media.coverImage?.extraLarge || s.media.coverImage?.large,
+        genres: s.media.genres || [],
+      }));
+  } catch (err) {
+    console.error("Failed to fetch airing schedule:", err);
     return [];
   }
 }
