@@ -1,5 +1,6 @@
 // backend/server.js
 const express = require("express");
+const { exec } = require("child_process");
 const cors = require("cors");
 const path = require("path");
 const crypto = require("crypto");
@@ -13,9 +14,20 @@ const PORT = process.env.PORT || 5000;
 const app = express();
 
 // ========================================================
-// MASTER MAL CLIENT ID (Paste your ID here)
+// MASTER MAL CLIENT ID
 // ========================================================
 const MASTER_MAL_CLIENT_ID = "956acf7dab4c48da35604da2c88e151a";
+
+// Helper to launch system default browser reliably on Windows/macOS/Linux
+function openInSystemBrowser(url) {
+  if (process.platform === "win32") {
+    exec(`start "" "${url}"`);
+  } else if (process.platform === "darwin") {
+    exec(`open "${url}"`);
+  } else {
+    exec(`xdg-open "${url}"`);
+  }
+}
 
 app.use(cors());
 app.use(express.json({ limit: "5mb" }));
@@ -46,6 +58,10 @@ app.get("/auth/mal/login", (req, res) => {
 
   const redirectUri = "http://localhost:5000";
   const authUrl = `https://myanimelist.net/v1/oauth2/authorize?response_type=code&client_id=${clientId}&code_challenge=${codeVerifier}&code_challenge_method=plain&redirect_uri=${encodeURIComponent(redirectUri)}`;
+  
+  // Launch Windows default browser (Chrome/Edge/Brave) directly
+  openInSystemBrowser(authUrl);
+
   res.redirect(authUrl);
 });
 
@@ -197,6 +213,11 @@ app.post("/auth/mal/sync-watchlist", async (req, res) => {
 });
 
 app.post("/auth/mal/clear", (req, res) => {
+  malSession = { clientId: null, codeVerifier: null, latestToken: null, latestUser: null };
+  res.json({ ok: true });
+});
+
+app.post("/auth/mal/disconnect", (req, res) => {
   malSession = { clientId: null, codeVerifier: null, latestToken: null, latestUser: null };
   res.json({ ok: true });
 });

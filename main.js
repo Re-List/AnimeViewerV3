@@ -15,7 +15,6 @@ require(path.join(__dirname, "backend/server.js"));
 function initDiscordRPC() {
   try {
     const DiscordRPC = require("discord-rpc");
-    // Keep your numerical Application ID from Discord Developer Portal here
     const CLIENT_ID = "1565774295349854278"; 
     
     rpc = new DiscordRPC.Client({ transport: "ipc" });
@@ -74,13 +73,14 @@ function createWindow() {
   // POPUP & AD-HIJACK BLOCKER
   // ========================================================
 
-  // A. Intercept popups: Allow AniList, Discord, and GitHub in system browser; block all ads
+  // A. Intercept popups: Allow AniList, Discord, GitHub, and MAL in system browser; block all ads
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (
       url.startsWith("https://github.com/") ||
       url.startsWith("https://discord.") ||
       url.startsWith("https://anilist.co/") ||
-      url.startsWith("https://myanimelist.net/")
+      url.startsWith("https://myanimelist.net/") ||
+      url.includes("/auth/mal/login")
     ) {
       shell.openExternal(url);
       return { action: "deny" };

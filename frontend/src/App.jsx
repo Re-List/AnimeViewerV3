@@ -40,7 +40,7 @@ const RELEASE_CHANGELOG = [
     category: "🎨 Theming & Visuals",
     items: [
       "6 built-in global themes (4 dark, 2 light) + custom hex gradient creator.",
-      "Cinematic hero banners with adaptive contrast scrims for light and dark modes."
+      "Dynamic adaptive top navigation bar and high-contrast buttons for both dark and light modes."
     ]
   }
 ];
@@ -79,10 +79,9 @@ function AppContent() {
   };
 
   return (
-    <div className="app-container" style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
-      {/* Global Sleek Themed Scrollbars */}
+    <div className="app-container" style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: "var(--bg-primary)" }}>
+      {/* Dynamic Themed Scrollbars & Header Inputs */}
       <style>{`
-        /* Webkit / Electron Scrollbars */
         ::-webkit-scrollbar {
           width: 6px;
           height: 6px;
@@ -91,36 +90,43 @@ function AppContent() {
           background: transparent;
         }
         ::-webkit-scrollbar-thumb {
-          background: rgba(255, 255, 255, 0.18);
+          background: var(--border-color, rgba(128, 128, 128, 0.3));
           border-radius: 999px;
           transition: background 0.2s ease;
         }
         ::-webkit-scrollbar-thumb:hover {
           background: var(--accent-color, #ff0080);
         }
-        /* Standards-based fallback */
         * {
           scrollbar-width: thin;
-          scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+          scrollbar-color: var(--border-color, rgba(128, 128, 128, 0.3)) transparent;
+        }
+        /* Make search input adapt to current theme */
+        header input {
+          background-color: var(--bg-primary) !important;
+          color: var(--text-primary) !important;
+          border: 1px solid var(--border-color) !important;
         }
       `}</style>
 
-      {/* Top Navigation Header */}
+      {/* Top Navigation Header (Dynamic for Light & Dark Themes) */}
       <header
         style={{
           position: "sticky",
           top: 0,
           zIndex: 1000,
           backdropFilter: "blur(14px)",
-          backgroundColor: "rgba(10, 10, 18, 0.78)",
-          borderBottom: "1px solid var(--border-color, rgba(255, 255, 255, 0.08))",
+          backgroundColor: "var(--bg-surface)",
+          borderBottom: "1px solid var(--border-color)",
           padding: "12px 24px",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          gap: "18px"
+          gap: "18px",
+          transition: "background-color 0.25s ease, border-color 0.25s ease"
         }}
       >
+        {/* Brand / Logo */}
         <Link
           to="/"
           style={{
@@ -128,7 +134,6 @@ function AppContent() {
             alignItems: "center",
             gap: "10px",
             textDecoration: "none",
-            color: "var(--text-main, #ffffff)",
             fontWeight: "bold",
             fontSize: "1.25rem",
             letterSpacing: "0.5px"
@@ -136,7 +141,7 @@ function AppContent() {
         >
           <span
             style={{
-              background: "var(--brand-primary, linear-gradient(135deg, #7928ca 0%, #ff0080 100%))",
+              background: "var(--brand-gradient, var(--brand-primary))",
               WebkitBackgroundClip: "text",
               WebkitTextFillColor: "transparent",
               fontWeight: 900
@@ -147,28 +152,32 @@ function AppContent() {
           <span
             style={{
               fontSize: "0.7rem",
-              background: "rgba(255, 255, 255, 0.1)",
+              background: "var(--border-color)",
               padding: "2px 6px",
               borderRadius: "4px",
-              color: "var(--text-muted, #9e9eaf)"
+              color: "var(--text-muted)",
+              fontWeight: 600
             }}
           >
             v{APP_VERSION}
           </span>
         </Link>
 
+        {/* Global Search Bar */}
         <div style={{ flex: 1, maxWidth: "520px" }}>
           <SearchBar />
         </div>
 
-        <nav style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+        {/* Nav Links */}
+        <nav style={{ display: "flex", alignItems: "center", gap: "16px" }}>
           <Link
             to="/"
             style={{
-              color: location.pathname === "/" ? "var(--accent-color, #ff0080)" : "var(--text-main, #e0e0e0)",
+              color: location.pathname === "/" ? "var(--accent-color)" : "var(--text-primary)",
               textDecoration: "none",
-              fontWeight: 600,
-              fontSize: "0.95rem"
+              fontWeight: location.pathname === "/" ? 700 : 600,
+              fontSize: "0.95rem",
+              transition: "color 0.2s ease"
             }}
           >
             Home
@@ -177,14 +186,15 @@ function AppContent() {
           <Link
             to="/watchlist"
             style={{
-              color: location.pathname.startsWith("/watchlist") ? "var(--accent-color, #ff0080)" : "var(--text-main, #e0e0e0)",
+              color: location.pathname.startsWith("/watchlist") ? "var(--accent-color)" : "var(--text-primary)",
               textDecoration: "none",
-              fontWeight: 600,
+              fontWeight: location.pathname.startsWith("/watchlist") ? 700 : 600,
               fontSize: "0.95rem",
               position: "relative",
               display: "flex",
               alignItems: "center",
-              gap: "6px"
+              gap: "6px",
+              transition: "color 0.2s ease"
             }}
           >
             Watch List
@@ -208,10 +218,11 @@ function AppContent() {
           <Link
             to="/schedule"
             style={{
-              color: location.pathname === "/schedule" ? "var(--accent-color, #ff0080)" : "var(--text-main, #e0e0e0)",
+              color: location.pathname === "/schedule" ? "var(--accent-color)" : "var(--text-primary)",
               textDecoration: "none",
-              fontWeight: 600,
-              fontSize: "0.95rem"
+              fontWeight: location.pathname === "/schedule" ? 700 : 600,
+              fontSize: "0.95rem",
+              transition: "color 0.2s ease"
             }}
           >
             Schedule
@@ -220,10 +231,11 @@ function AppContent() {
           <Link
             to="/settings"
             style={{
-              color: location.pathname === "/settings" ? "var(--accent-color, #ff0080)" : "var(--text-main, #e0e0e0)",
+              color: location.pathname === "/settings" ? "var(--accent-color)" : "var(--text-primary)",
               textDecoration: "none",
-              fontWeight: 600,
-              fontSize: "0.95rem"
+              fontWeight: location.pathname === "/settings" ? 700 : 600,
+              fontSize: "0.95rem",
+              transition: "color 0.2s ease"
             }}
           >
             Settings
@@ -231,6 +243,7 @@ function AppContent() {
         </nav>
       </header>
 
+      {/* Main View Routes */}
       <main style={{ flex: 1 }}>
         <Routes>
           <Route path="/" element={<Home />} />
@@ -261,18 +274,16 @@ function AppContent() {
         >
           <div
             style={{
-              backgroundColor: "var(--bg-surface, #14141f)",
-              color: "var(--text-main, #ffffff)",
-              border: "1px solid var(--border-color, rgba(255, 255, 255, 0.12))",
+              backgroundColor: "var(--bg-surface)",
+              color: "var(--text-primary)",
+              border: "1px solid var(--border-color)",
               borderRadius: "16px",
               padding: "28px",
               maxWidth: "580px",
               width: "100%",
               maxHeight: "85vh",
               overflowY: "auto",
-              boxShadow: "0 24px 60px rgba(0, 0, 0, 0.8)",
-              scrollbarWidth: "thin",
-              scrollbarColor: "rgba(255, 255, 255, 0.2) transparent"
+              boxShadow: "0 24px 60px rgba(0, 0, 0, 0.4)"
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "16px" }}>
@@ -281,13 +292,13 @@ function AppContent() {
                 <h2 style={{ margin: 0, fontSize: "1.35rem", fontWeight: 800 }}>
                   What's New in Re:List
                 </h2>
-                <span style={{ fontSize: "0.8rem", color: "var(--accent-color, #ff0080)", fontWeight: 600 }}>
+                <span style={{ fontSize: "0.8rem", color: "var(--accent-color)", fontWeight: 700 }}>
                   Version {APP_VERSION}
                 </span>
               </div>
             </div>
 
-            <p style={{ color: "var(--text-muted, #a0a0b0)", fontSize: "0.9rem", lineHeight: 1.5, marginTop: 0 }}>
+            <p style={{ color: "var(--text-muted)", fontSize: "0.9rem", lineHeight: 1.5, marginTop: 0 }}>
               We've packed this release with official MyAnimeList sync, a live simulcast calendar, instant pre-buffering, and UI polish!
             </p>
 
@@ -296,16 +307,16 @@ function AppContent() {
                 <div
                   key={idx}
                   style={{
-                    backgroundColor: "rgba(255, 255, 255, 0.03)",
-                    border: "1px solid rgba(255, 255, 255, 0.06)",
+                    backgroundColor: "var(--bg-primary)",
+                    border: "1px solid var(--border-color)",
                     borderRadius: "10px",
                     padding: "14px"
                   }}
                 >
-                  <h4 style={{ margin: "0 0 8px 0", fontSize: "0.95rem", color: "var(--text-main, #ffffff)" }}>
+                  <h4 style={{ margin: "0 0 8px 0", fontSize: "0.95rem", color: "var(--text-primary)" }}>
                     {section.category}
                   </h4>
-                  <ul style={{ margin: 0, paddingLeft: "18px", color: "var(--text-muted, #c0c0d0)", fontSize: "0.85rem", lineHeight: 1.6 }}>
+                  <ul style={{ margin: 0, paddingLeft: "18px", color: "var(--text-muted)", fontSize: "0.85rem", lineHeight: 1.6 }}>
                     {section.items.map((item, itemIdx) => (
                       <li key={itemIdx}>{item}</li>
                     ))}
@@ -321,12 +332,12 @@ function AppContent() {
                 padding: "12px",
                 border: "none",
                 borderRadius: "10px",
-                background: "var(--brand-primary, linear-gradient(135deg, #7928ca 0%, #ff0080 100%))",
+                background: "var(--accent-gradient, var(--brand-primary))",
                 color: "#ffffff",
                 fontWeight: "bold",
                 fontSize: "1rem",
                 cursor: "pointer",
-                boxShadow: "0 4px 14px rgba(255, 0, 128, 0.35)",
+                boxShadow: "0 4px 14px rgba(0, 0, 0, 0.2)",
                 transition: "transform 0.15s ease"
               }}
               onMouseEnter={(e) => (e.target.style.transform = "scale(1.02)")}
