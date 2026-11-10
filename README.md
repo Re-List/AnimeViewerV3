@@ -2,15 +2,15 @@
 
 <div align="center">
 
-[https://raw.githubusercontent.com/Re-List/AnimeViewerV3/main/frontend/public/logo.png]
+![Logo](https://raw.githubusercontent.com/Re-List/AnimeViewerV3/main/frontend/public/logo.png)
 
 **A high-performance, ad-free desktop anime streaming and catalog player with seamless cloud synchronization.**
 
-[[https://img.shields.io/badge/version-1.2.0-blue.svg?style=for-the-badge]](https://github.com/Re-List/AnimeViewerV3/releases)
-[[https://img.shields.io/badge/platform-Windows%20x64-brightgreen.svg?style=for-the-badge]](https://github.com/Re-List/AnimeViewerV3/releases)
-[[https://img.shields.io/badge/license-MIT-purple.svg?style=for-the-badge]](LICENSE)
-[[https://img.shields.io/badge/React-19.0-61dafb.svg?style=for-the-badge&logo=react]](https://react.dev/)
-[[https://img.shields.io/badge/Electron-Latest-47848F.svg?style=for-the-badge&logo=electron]](https://www.electronjs.org/)
+[![Version](https://img.shields.io/badge/version-1.2.2-blue.svg?style=for-the-badge)](https://github.com/Re-List/AnimeViewerV3/releases)
+[![Platform](https://img.shields.io/badge/platform-Windows%20x64-brightgreen.svg?style=for-the-badge)](https://github.com/Re-List/AnimeViewerV3/releases)
+[![License](https://img.shields.io/badge/license-MIT-purple.svg?style=for-the-badge)](LICENSE)
+[![React](https://img.shields.io/badge/React-19.0-61dafb.svg?style=for-the-badge&logo=react)](https://react.dev/)
+[![Electron](https://img.shields.io/badge/Electron-Latest-47848F.svg?style=for-the-badge&logo=electron)](https://www.electronjs.org/)
 
 [Features](#-key-features) • [Installation](#-installation) • [Architecture](#-architecture) • [Building from Source](#-building-from-source) • [Privacy](#-privacy--security)
 
@@ -57,7 +57,7 @@
 ## 📦 Installation
 
 1. Navigate to the [Latest Releases](https://github.com/Re-List/AnimeViewerV3/releases) page.
-2. Download **`ReList-Setup-1.2.0.exe`**.
+2. Download **`ReList-Setup-1.2.2.exe`**.
 3. Run the installer, select your install destination, and launch Re:List.
 4. Auto-updates will notify and install automatically on future releases.
 
@@ -79,7 +79,7 @@ cd AnimeViewerV3
 npm install
 
 # 3. Build the React frontend
-npm run build:frontend
+npm run build
 
 # 4. Launch in development mode
 npm start
