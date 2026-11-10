@@ -1,128 +1,354 @@
 // frontend/src/components/AnimeCard.jsx
-import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
-import { getAnimeDetails } from "../services/animeService";
+import React, { useState, useRef, useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import {
+  addToWatchlist,
+  removeFromWatchlist,
+  getAllWatchlist,
+} from "../services/watchlistService";
 
-function isRealImageUrl(url) {
-  return typeof url === "string" && /^https?:\/\//i.test(url);
-}
+export default function AnimeCard({ anime, onDelete }) {
+  const [showPopup, setShowPopup] = useState(false);
+  const [inWatchlist, setInWatchlist] = useState(false);
+  const hoverTimeoutRef = useRef(null);
+  const navigate = useNavigate();
 
-let imageQueue = Promise.resolve();
-function enqueueImageLookup(fn) {
-  const run = imageQueue.then(fn, fn);
-  imageQueue = run.then(
-    () => new Promise((resolve) => setTimeout(resolve, 400)),
-    () => new Promise((resolve) => setTimeout(resolve, 400))
-  );
-  return run;
-}
+  if (!anime) return null;
 
-function AnimeCard({
-  anime,
-  onDeleteClick,
-  isSearchResult = false
-}) {
-  const id = anime.mal_id || anime.anime_id;
+  const animeId = anime.id || anime.anime_id || anime.mal_id;
+  const title =
+    (typeof anime.title === "string" ? anime.title : anime.title?.english || anime.title?.romaji) ||
+    anime.title_english ||
+    "Anime";
 
-  const initialSrc = (() => {
-    const cached = localStorage.getItem(`img_${id}`);
-    const fromAnime =
-      anime.images?.jpg?.large_image_url ||
-      anime.images?.jpg?.image_url ||
-      anime.image;
-    if (isRealImageUrl(cached)) return cached;
-    if (isRealImageUrl(fromAnime)) return fromAnime;
-    return "";
-  })();
+  const image =
+    anime.images?.jpg?.large_image_url ||
+    anime.images?.jpg?.image_url ||
+    anime.coverImage?.extraLarge ||
+    anime.coverImage?.large ||
+    anime.coverImage?.medium ||
+    anime.main_picture?.large ||
+    anime.main_picture?.medium ||
+    anime.image ||
+    "";
 
-  const [src, setSrc] = useState(initialSrc);
+  const score = anime.averageScore ? (anime.averageScore / 10).toFixed(1) : anime.score || null;
+  const format = anime.format || anime.type || "TV";
+  const status = anime.status?.replace(/_/g, " ") || "CURRENTLY AIRING";
+  const episodes = anime.episodes || anime.totalEpisodes || null;
 
   useEffect(() => {
-    if (isRealImageUrl(src)) return;
-
     let cancelled = false;
-    enqueueImageLookup(async () => {
+    async function checkSaved() {
       try {
-        const details = await getAnimeDetails(id);
-        const newImg =
-          details?.images?.jpg?.large_image_url ||
-          details?.images?.jpg?.image_url;
-        if (!cancelled && isRealImageUrl(newImg)) {
-          setSrc(newImg);
-          localStorage.setItem(`img_${id}`, newImg);
+        const list = await getAllWatchlist();
+        if (!cancelled && list && Array.isArray(list)) {
+          const exists = list.some((item) => String(item.anime_id) === String(animeId));
+          setInWatchlist(exists);
         }
-      } catch {
-        console.warn(`Failed to load image for anime ${id}`);
-      }
-    });
-
+      } catch (e) {}
+    }
+    checkSaved();
     return () => {
       cancelled = true;
+      if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
     };
-  }, [id, src]);
+  }, [animeId]);
 
-  const displayTitle = anime.title_english || anime.title;
+  const handleMouseEnter = () => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    setShowPopup(true);
+  };
+
+  const handleMouseLeave = () => {
+    hoverTimeoutRef.current = setTimeout(() => {
+      setShowPopup(false);
+    }, 320);
+  };
+
+  const handleWatchlistToggle = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      if (inWatchlist) {
+        await removeFromWatchlist(animeId);
+        setInWatchlist(false);
+      } else {
+        await addToWatchlist({
+          anime_id: animeId,
+          title,
+          image,
+          status: "watching",
+        });
+        setInWatchlist(true);
+      }
+    } catch (err) {
+      console.error("Watchlist toggle error:", err);
+    }
+  };
+
+  const handleWatchClick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    navigate(`/watch/${animeId}/1`);
+  };
 
   return (
     <div
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
       style={{
-        background: "var(--bg-surface)",
-        border: "1px solid var(--border-color)",
-        borderRadius: "10px",
         position: "relative",
-        overflow: "hidden",
-        boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
-        transition: "transform 0.2s ease, box-shadow 0.2s ease",
+        borderRadius: "12px",
+        cursor: "pointer",
+        transition: "transform 0.2s ease",
       }}
     >
-      {!isSearchResult && onDeleteClick && (
+      {/* Explicit 'X' Remove Button */}
+      {onDelete && (
         <button
-          onClick={(e) => { e.preventDefault(); onDeleteClick(id); }}
-          style={{
-            position: "absolute", top: "8px", right: "8px", zIndex: 10,
-            background: "rgba(0,0,0,0.75)", border: "none", color: "white",
-            borderRadius: "50%", cursor: "pointer", width: "26px", height: "26px",
-            fontSize: "14px", display: "flex", alignItems: "center", justifyContent: "center"
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onDelete(animeId);
           }}
+          style={{
+            position: "absolute",
+            top: "8px",
+            right: "8px",
+            background: "rgba(0,0,0,0.85)",
+            color: "#ef4444",
+            border: "1px solid rgba(255,255,255,0.2)",
+            borderRadius: "50%",
+            width: "30px",
+            height: "30px",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: "13px",
+            fontWeight: 800,
+            zIndex: 30,
+            boxShadow: "0 4px 10px rgba(0,0,0,0.5)",
+          }}
+          title="Remove from collection"
         >
           ✕
         </button>
       )}
 
-      <Link to={`/anime/${id}`} style={{ textDecoration: "none", color: "var(--text-primary)" }}>
-        {src ? (
-          <img
-            src={src}
-            alt={displayTitle}
-            referrerPolicy="no-referrer"
-            onError={() => {
-              localStorage.removeItem(`img_${id}`);
-              setSrc("");
-            }}
-            style={{ width: "100%", height: "250px", objectFit: "cover", display: "block", background: "var(--bg-primary)" }}
-          />
-        ) : (
-          <div style={{ width: "100%", height: "250px", background: "var(--bg-primary)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <span style={{ fontSize: "11px", color: "var(--text-muted)", fontWeight: "bold" }}>LOADING...</span>
-          </div>
-        )}
-
-        <div style={{ padding: "12px" }}>
-          <h4 style={{
-            margin: 0,
-            fontSize: "13.5px",
-            color: "var(--text-primary)",
-            whiteSpace: "nowrap",
+      {/* Base Card Poster & Navigation */}
+      <Link to={`/details/${animeId}`} style={{ textDecoration: "none", display: "block" }}>
+        <div
+          style={{
+            position: "relative",
+            width: "100%",
+            paddingBottom: "145%",
+            borderRadius: "10px",
             overflow: "hidden",
-            textOverflow: "ellipsis",
-            lineHeight: "1.3"
-          }}>
-            {displayTitle}
+            backgroundColor: "var(--bg-surface, #141414)",
+            border: "1px solid var(--border-color, #222)",
+            transition: "border-color 0.2s ease, transform 0.2s ease",
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.borderColor = "var(--accent-color, #ff0080)")}
+          onMouseLeave={(e) => (e.currentTarget.style.borderColor = "var(--border-color, #222)")}
+        >
+          <img
+            src={image || "https://placehold.co/300x400/111/fff?text=No+Image"}
+            alt={title}
+            loading="lazy"
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+            }}
+          />
+
+          <span
+            style={{
+              position: "absolute",
+              top: "8px",
+              left: "8px",
+              background: "rgba(0, 0, 0, 0.78)",
+              backdropFilter: "blur(4px)",
+              color: "#ffffff",
+              fontSize: "10px",
+              fontWeight: 800,
+              padding: "2px 6px",
+              borderRadius: "4px",
+              letterSpacing: "0.5px",
+            }}
+          >
+            {format}
+          </span>
+
+          {score && (
+            <span
+              style={{
+                position: "absolute",
+                top: "8px",
+                right: onDelete ? "44px" : "8px",
+                background: "rgba(0, 0, 0, 0.78)",
+                backdropFilter: "blur(4px)",
+                color: "#f59e0b",
+                fontSize: "11px",
+                fontWeight: 800,
+                padding: "2px 6px",
+                borderRadius: "4px",
+                display: "flex",
+                alignItems: "center",
+                gap: "3px",
+              }}
+            >
+              ★ {score}
+            </span>
+          )}
+        </div>
+
+        <div style={{ padding: "8px 2px 2px" }}>
+          <h4
+            style={{
+              margin: 0,
+              fontSize: "13px",
+              fontWeight: 700,
+              color: "var(--text-primary, #ffffff)",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {title}
           </h4>
+          <div
+            style={{
+              fontSize: "11px",
+              color: "var(--text-muted, #888)",
+              marginTop: "3px",
+              display: "flex",
+              justifyContent: "space-between",
+            }}
+          >
+            <span>{episodes ? `${episodes} eps` : "Airing"}</span>
+            <span style={{ textTransform: "capitalize" }}>{format}</span>
+          </div>
         </div>
       </Link>
+
+      {/* Floating Hover Preview Card */}
+      {showPopup && (
+        <div
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
+          style={{
+            position: "absolute",
+            bottom: "65px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            width: "275px",
+            backgroundColor: "var(--bg-surface, #181824)",
+            border: "1px solid var(--border-color, rgba(255, 255, 255, 0.15))",
+            borderRadius: "14px",
+            padding: "16px",
+            zIndex: 9999,
+            boxShadow: "0 18px 45px rgba(0, 0, 0, 0.75)",
+            pointerEvents: "auto",
+          }}
+        >
+          <h4
+            style={{
+              margin: "0 0 6px",
+              fontSize: "14px",
+              fontWeight: 800,
+              color: "var(--accent-color, #ff0080)",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {title}
+          </h4>
+
+          <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "8px", flexWrap: "wrap" }}>
+            <span style={{ fontSize: "10px", background: "rgba(255,255,255,0.08)", padding: "2px 6px", borderRadius: "4px", color: "var(--text-primary, #fff)", fontWeight: 700 }}>
+              {format}
+            </span>
+            {score && (
+              <span style={{ fontSize: "10px", background: "rgba(245, 158, 11, 0.15)", color: "#f59e0b", padding: "2px 6px", borderRadius: "4px", fontWeight: 700 }}>
+                ★ {score}
+              </span>
+            )}
+            <span style={{ fontSize: "9px", background: "rgba(255,255,255,0.06)", padding: "2px 6px", borderRadius: "4px", color: "var(--text-muted, #aaa)", fontWeight: 700, textTransform: "uppercase" }}>
+              {status}
+            </span>
+          </div>
+
+          <p
+            style={{
+              fontSize: "11.5px",
+              color: "var(--text-muted, #b0b0cc)",
+              margin: "0 0 14px",
+              lineHeight: 1.45,
+              display: "-webkit-box",
+              WebkitLineClamp: 3,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+            }}
+          >
+            {anime.description?.replace(/<[^>]*>/g, "") || "Click card to view full synopsis and episodes."}
+          </p>
+
+          <div style={{ display: "flex", gap: "8px" }}>
+            <button
+              type="button"
+              onClick={handleWatchClick}
+              style={{
+                flex: 1,
+                padding: "8px 12px",
+                border: "none",
+                borderRadius: "8px",
+                background: "var(--accent-gradient, var(--brand-primary, #ff0080))",
+                color: "#ffffff",
+                fontWeight: 700,
+                fontSize: "12px",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "5px",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+              }}
+            >
+              <span>▶</span> Watch
+            </button>
+
+            <button
+              type="button"
+              onClick={handleWatchlistToggle}
+              title={inWatchlist ? "Remove from Watchlist" : "Add to Watchlist"}
+              style={{
+                width: "36px",
+                padding: "8px 0",
+                border: "1px solid var(--border-color, rgba(255,255,255,0.15))",
+                borderRadius: "8px",
+                background: inWatchlist ? "rgba(16, 185, 129, 0.2)" : "rgba(255,255,255,0.06)",
+                color: inWatchlist ? "#10b981" : "var(--text-primary, #ffffff)",
+                fontWeight: 700,
+                fontSize: "14px",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              {inWatchlist ? "✓" : "+"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-
-export default AnimeCard;

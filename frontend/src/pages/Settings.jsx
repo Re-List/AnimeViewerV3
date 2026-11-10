@@ -28,27 +28,37 @@ import {
 const SOURCES = ["MegaPlay", "Megavid", "Anixo", "VidHawk"];
 
 function Settings() {
-  // Extract the string ID so comparisons work
   const [currentThemeId, setCurrentThemeId] = useState(() => {
-    const t = getCurrentTheme();
-    return typeof t === "object" ? t.id : t;
+    try {
+      const t = getCurrentTheme();
+      return typeof t === "object" ? t.id : t;
+    } catch {
+      return "midnight-velvet";
+    }
   });
+
   const [customColor1, setCustomColor1] = useState("#8b5cf6");
   const [customColor2, setCustomColor2] = useState("#ec4899");
   const [customIsDark, setCustomIsDark] = useState(true);
 
   // AniList State
-  const [anilistToken, setAnilistToken] = useState(getAniListToken);
-  const [anilistUser, setAnilistUser] = useState(getAniListUser);
+  const [anilistToken, setAnilistToken] = useState(() => getAniListToken() || "");
+  const [anilistUser, setAnilistUser] = useState(() => getAniListUser());
   const [tokenInput, setTokenInput] = useState("");
   const [connectingAniList, setConnectingAniList] = useState(false);
 
   // MyAnimeList (MAL) State
-  const [malToken, setMalToken] = useState(getMALToken);
-  const [malUser, setMalUser] = useState(getMALUser);
+  const [malToken, setMalToken] = useState(() => getMALToken());
+  const [malUser, setMalUser] = useState(() => getMALUser());
   const [authorizingMAL, setAuthorizingMAL] = useState(false);
   const [syncingMALList, setSyncingMALList] = useState(false);
-  const [malSyncPaused, setMalSyncPaused] = useState(isMALAutoSyncPaused);
+  const [malSyncPaused, setMalSyncPaused] = useState(() => {
+    try {
+      return isMALAutoSyncPaused();
+    } catch {
+      return false;
+    }
+  });
 
   const [globalLanguage, setGlobalLanguage] = useState(
     () => localStorage.getItem("globalLanguage") || "sub"
@@ -75,11 +85,13 @@ function Settings() {
 
   const [toastMessage, setToastMessage] = useState("");
   const [showToast, setShowToast] = useState(false);
+  const [showClearModal, setShowClearModal] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
 
   const triggerToast = (msg) => {
     setToastMessage(msg);
     setShowToast(true);
-    setTimeout(() => setShowToast(false), 3000);
+    setTimeout(() => setShowToast(false), 3500);
   };
 
   const handleSelectTheme = (themeId, themeName) => {
@@ -120,7 +132,7 @@ function Settings() {
 
   const handleDisconnectAniList = () => {
     removeAniListToken();
-    setAnilistToken(null);
+    setAnilistToken("");
     setAnilistUser(null);
     triggerToast("AniList account disconnected.");
   };
@@ -207,11 +219,11 @@ function Settings() {
         setHistory(historyData || []);
 
         const [watching, completed, onhold, dropped, planned] = await Promise.all([
-          getWatchlistByStatus("watching"),
-          getWatchlistByStatus("completed"),
-          getWatchlistByStatus("onhold"),
-          getWatchlistByStatus("dropped"),
-          getWatchlistByStatus("planned"),
+          getWatchlistByStatus("watching").catch(() => []),
+          getWatchlistByStatus("completed").catch(() => []),
+          getWatchlistByStatus("onhold").catch(() => []),
+          getWatchlistByStatus("dropped").catch(() => []),
+          getWatchlistByStatus("planned").catch(() => []),
         ]);
 
         setWatchlistStats({
@@ -258,6 +270,88 @@ function Settings() {
     triggerToast(on ? "Theater mode default: On" : "Theater mode default: Off");
   };
 
+  const copySupportEmail = () => {
+    navigator.clipboard.writeText("support.relist@gmail.com");
+    triggerToast("Email copied to clipboard!");
+  };
+
+  const exportMAL = async () => {
+    try {
+      const all = await getAllWatchlist();
+      let xml = '<?xml version="1.0" encoding="UTF-8" ?>\n<myanimelist>\n';
+      all.forEach((item) => {
+        xml += `  <anime>\n    <series_animedb_id>${item.anime_id}</series_animedb_id>\n    <series_title><![CDATA[${item.title}]]></series_title>\n    <my_status>${item.status}</my_status>\n  </anime>\n`;
+      });
+      xml += "</myanimelist>";
+      const blob = new Blob([xml], { type: "application/xml" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `relist_backup_${new Date().toISOString().slice(0, 10)}.xml`;
+      a.click();
+      URL.revokeObjectURL(url);
+      triggerToast("MAL XML exported successfully!");
+    } catch {
+      triggerToast("Failed to export MAL XML.");
+    }
+  };
+
+  const importMAL = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      try {
+        const text = ev.target?.result;
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(text, "application/xml");
+        const nodes = doc.querySelectorAll("anime");
+        const items = [];
+        nodes.forEach((n) => {
+          const id = n.querySelector("series_animedb_id")?.textContent;
+          const title = n.querySelector("series_title")?.textContent;
+          const status = n.querySelector("my_status")?.textContent?.toLowerCase() || "planned";
+          if (id && title) items.push({ anime_id: Number(id), title, status });
+        });
+        if (items.length) {
+          await importWatchlistBulk(items);
+          triggerToast(`Imported ${items.length} anime!`);
+          setTimeout(() => window.location.reload(), 1200);
+        } else {
+          triggerToast("No valid anime found in XML file.");
+        }
+      } catch {
+        triggerToast("Failed to parse XML file.");
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const executeClearAllData = async () => {
+    setIsClearing(true);
+    try {
+      const allHistory = await getHistory();
+      const allWatchlist = await getAllWatchlist();
+      await Promise.all([
+        ...allHistory.map((item) => removeHistoryItem(item.anime_id)),
+        ...allWatchlist.map((item) => removeFromWatchlist(item.anime_id)),
+      ]);
+      localStorage.removeItem("watched");
+      Object.keys(localStorage).forEach((k) => {
+        if (k.startsWith("watched_") || k.startsWith("progress_")) {
+          localStorage.removeItem(k);
+        }
+      });
+      triggerToast("All data wiped. Reloading…");
+      setTimeout(() => window.location.reload(), 1500);
+    } catch (error) {
+      console.error(error);
+      triggerToast("Failed to clear database");
+      setIsClearing(false);
+      setShowClearModal(false);
+    }
+  };
+
   const card = {
     background: "var(--bg-surface)",
     borderRadius: "14px",
@@ -269,7 +363,6 @@ function Settings() {
     transition: "all 0.25s ease",
   };
 
-  // High-contrast pill styling with visible borders
   const pill = (active) => ({
     padding: "10px 16px",
     borderRadius: "8px",
@@ -295,6 +388,11 @@ function Settings() {
     margin: "0 0 14px",
     lineHeight: 1.4,
   };
+
+  const activeThemeName =
+    currentThemeId === "custom"
+      ? "Custom Gradient"
+      : THEMES.find((t) => t.id === currentThemeId)?.name || currentThemeId;
 
   return (
     <div
@@ -334,7 +432,6 @@ function Settings() {
           background: "var(--brand-gradient)",
           WebkitBackgroundClip: "text",
           WebkitTextFillColor: "transparent",
-          backgroundClip: "text",
         }}
       >
         Application Settings
@@ -362,7 +459,7 @@ function Settings() {
               color: "white",
             }}
           >
-            Active Theme: {currentThemeId === "custom" ? "Custom Gradient" : (THEMES.find((t) => t.id === currentThemeId)?.name || currentThemeId)}
+            Active Theme: {activeThemeName}
           </span>
         </div>
 
@@ -458,7 +555,7 @@ function Settings() {
       </div>
 
       {/* --- SETTINGS GRID --- */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "14px", alignItems: "stretch" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: "14px", alignItems: "stretch" }}>
         {/* AniList Live Auto-Sync */}
         <div style={card}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
@@ -473,7 +570,7 @@ function Settings() {
 
           <div style={{ marginTop: "auto" }}>
             {anilistUser ? (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", background: "var(--bg-surface)", padding: "10px 14px", borderRadius: "10px", border: "1px solid var(--border-color)" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", background: "var(--bg-primary)", padding: "10px 14px", borderRadius: "10px", border: "1px solid var(--border-color)" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                   <img
                     src={anilistUser.avatar?.medium || anilistUser.avatar?.large}
@@ -503,7 +600,7 @@ function Settings() {
                     placeholder="Paste AniList Token..."
                     value={tokenInput}
                     onChange={(e) => setTokenInput(e.target.value)}
-                    style={{ flex: 1, padding: "8px 12px", background: "var(--bg-surface)", border: "1px solid var(--border-color)", borderRadius: "6px", color: "var(--text-primary)", fontSize: "12px", outline: "none" }}
+                    style={{ flex: 1, padding: "8px 12px", background: "var(--bg-primary)", border: "1px solid var(--border-color)", borderRadius: "6px", color: "var(--text-primary)", fontSize: "12px", outline: "none" }}
                   />
                   <button
                     type="button"
@@ -550,7 +647,7 @@ function Settings() {
           <div style={{ marginTop: "auto" }}>
             {(malUser || malToken) ? (
               <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", background: "var(--bg-surface)", padding: "10px 14px", borderRadius: "10px", border: "1px solid var(--border-color)" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", background: "var(--bg-primary)", padding: "10px 14px", borderRadius: "10px", border: "1px solid var(--border-color)" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                     {malUser?.picture ? (
                       <img
@@ -587,7 +684,7 @@ function Settings() {
                     onClick={handleToggleMALPause}
                     style={{
                       padding: "8px 12px",
-                      background: malSyncPaused ? "var(--accent-gradient)" : "var(--bg-surface)",
+                      background: malSyncPaused ? "var(--accent-gradient)" : "var(--bg-primary)",
                       border: "1px solid var(--border-color)",
                       borderRadius: "8px",
                       color: malSyncPaused ? "white" : "var(--text-primary)",
@@ -609,12 +706,12 @@ function Settings() {
                     onClick={() => handleSyncMALWatchlist()}
                     style={{
                       padding: "8px 12px",
-                      background: "var(--accent-gradient)",
-                      border: "none",
+                      background: "var(--bg-primary)",
+                      border: "1px solid var(--border-color)",
                       borderRadius: "8px",
-                      color: "white",
+                      color: "var(--text-primary)",
                       fontSize: "11.5px",
-                      fontWeight: 700,
+                      fontWeight: 600,
                       cursor: "pointer",
                       display: "flex",
                       alignItems: "center",
@@ -628,55 +725,30 @@ function Settings() {
                 </div>
               </div>
             ) : (
-              <div>
-                <button
-                  type="button"
-                  disabled={authorizingMAL}
-                  onClick={handleStartMALLogin}
-                  style={{
-                    width: "100%",
-                    padding: "11px 16px",
-                    background: "#2e51a2",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "8px",
-                    cursor: "pointer",
-                    fontSize: "13px",
-                    fontWeight: 700,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: "8px",
-                    transition: "all 0.2s ease",
-                    boxShadow: "0 4px 14px rgba(46, 81, 162, 0.3)",
-                  }}
-                >
-                  <span>⭐</span>
-                  <span>{authorizingMAL ? "Waiting for authorization…" : "Sign in with MyAnimeList"}</span>
-                </button>
-
-                {authorizingMAL && (
-                  <p style={{ margin: "8px 0 0", fontSize: "11px", color: "var(--text-muted)", textAlign: "center" }}>
-                    Browser didn't open?{" "}
-                    <a
-                      href="http://localhost:5000/auth/mal/login"
-                      target="_blank"
-                      rel="noreferrer"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        if (window.electronAPI?.openExternal) {
-                          window.electronAPI.openExternal("http://localhost:5000/auth/mal/login");
-                        } else {
-                          window.open("http://localhost:5000/auth/mal/login", "_blank");
-                        }
-                      }}
-                      style={{ color: "var(--accent-color, #38bdf8)", textDecoration: "underline", cursor: "pointer" }}
-                    >
-                      Click here to launch
-                    </a>
-                  </p>
-                )}
-              </div>
+              <button
+                type="button"
+                disabled={authorizingMAL}
+                onClick={handleStartMALLogin}
+                style={{
+                  width: "100%",
+                  padding: "11px 16px",
+                  background: "#2e51a2",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "8px",
+                  cursor: "pointer",
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "8px",
+                  boxShadow: "0 4px 14px rgba(46, 81, 162, 0.3)",
+                }}
+              >
+                <span>⭐</span>
+                <span>{authorizingMAL ? "Waiting for authorization…" : "Sign in with MyAnimeList"}</span>
+              </button>
             )}
           </div>
         </div>
@@ -706,7 +778,7 @@ function Settings() {
               { label: "Planned", value: watchlistStats.planned, color: "#8b5cf6" },
               { label: "History", value: history.length, color: "#94a3b8" },
             ].map((s) => (
-              <div key={s.label} style={{ background: "var(--bg-surface)", borderRadius: "10px", border: "1px solid var(--border-color)", padding: "10px", textAlign: "center" }}>
+              <div key={s.label} style={{ background: "var(--bg-primary)", borderRadius: "10px", border: "1px solid var(--border-color)", padding: "10px", textAlign: "center" }}>
                 <div style={{ fontSize: "18px", fontWeight: 700, color: s.color }}>{s.value}</div>
                 <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "2px" }}>{s.label}</div>
               </div>
@@ -754,7 +826,119 @@ function Settings() {
             </button>
           </div>
         </div>
+
+        {/* MAL XML File Backup */}
+        <div style={card}>
+          <h2 style={title}>📁 MAL XML Backup</h2>
+          <p style={desc}>Manual file backup import or export.</p>
+          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "auto" }}>
+            <label style={{ ...pill(false), display: "inline-flex", alignItems: "center", gap: "6px" }}>
+              Import
+              <input type="file" accept=".xml" onChange={importMAL} style={{ display: "none" }} />
+            </label>
+            <button type="button" onClick={exportMAL} style={{ ...pill(false), background: "#065f46", border: "none", color: "#fff" }}>
+              Export
+            </button>
+          </div>
+        </div>
+
+        {/* Help & Support */}
+        <div style={card}>
+          <h2 style={title}>📬 Help & Support</h2>
+          <p style={desc}>For issues, queries, or feature suggestions:</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "auto" }}>
+            <a
+              href="mailto:support.relist@gmail.com"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+                padding: "8px 12px",
+                background: "var(--bg-primary)",
+                border: "1px solid var(--border-color)",
+                borderRadius: "8px",
+                color: "var(--text-primary)",
+                textDecoration: "none",
+                fontSize: "12px",
+                fontWeight: 600,
+                wordBreak: "break-all",
+              }}
+            >
+              ✉️ support.relist@gmail.com
+            </a>
+            <button
+              type="button"
+              onClick={copySupportEmail}
+              style={{
+                padding: "7px 12px",
+                background: "var(--bg-surface)",
+                border: "1px solid var(--border-color)",
+                borderRadius: "8px",
+                color: "var(--text-muted)",
+                fontSize: "11px",
+                cursor: "pointer",
+                fontWeight: 500,
+                alignSelf: "flex-start",
+              }}
+            >
+              📋 Copy Email
+            </button>
+          </div>
+        </div>
+
+        {/* Danger Zone */}
+        <div style={{ ...card, border: "1px solid #7f1d1d" }}>
+          <h2 style={title}>🚨 Danger Zone</h2>
+          <p style={desc}>Permanently wipe history and all collections.</p>
+          <button
+            type="button"
+            onClick={() => setShowClearModal(true)}
+            style={{
+              marginTop: "auto",
+              padding: "10px 16px",
+              background: "#ef4444",
+              color: "white",
+              border: "none",
+              borderRadius: "8px",
+              fontWeight: 700,
+              cursor: "pointer",
+              fontSize: "13px",
+              alignSelf: "flex-start",
+            }}
+          >
+            Wipe All Data
+          </button>
+        </div>
       </div>
+
+      {showClearModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000, backdropFilter: "blur(4px)" }}>
+          <div style={{ background: "var(--bg-surface)", padding: "28px", borderRadius: "14px", border: "1px solid var(--border-color)", maxWidth: "400px", width: "90%", textAlign: "center" }}>
+            <h3 style={{ margin: "0 0 8px" }}>Wipe everything?</h3>
+            <p style={{ color: "var(--text-muted)", fontSize: "13px", margin: "0 0 20px" }}>
+              History + all watchlist statuses will be deleted permanently.
+            </p>
+            <div style={{ display: "flex", gap: "10px", justifyContent: "center" }}>
+              <button
+                type="button"
+                disabled={isClearing}
+                onClick={executeClearAllData}
+                style={{ padding: "10px 18px", background: "#ef4444", color: "white", border: "none", borderRadius: "8px", fontWeight: 700, cursor: "pointer" }}
+              >
+                {isClearing ? "Wiping…" : "Yes, wipe all"}
+              </button>
+              <button
+                type="button"
+                disabled={isClearing}
+                onClick={() => setShowClearModal(false)}
+                style={{ padding: "10px 18px", background: "#222", color: "white", border: "1px solid var(--border-color)", borderRadius: "8px", cursor: "pointer" }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

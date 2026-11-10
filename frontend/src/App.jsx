@@ -1,12 +1,15 @@
+// frontend/src/App.jsx
 import React, { useState, useEffect } from "react";
 import { HashRouter as Router, Routes, Route, Link, useLocation } from "react-router-dom";
 import Home from "./pages/Home";
 import WatchList from "./pages/WatchList";
+import WatchListCategory from "./pages/WatchListCategory";
 import Schedule from "./pages/Schedule";
 import Settings from "./pages/Settings";
 import AnimeDetails from "./pages/AnimeDetails";
 import Player from "./pages/Player";
 import ContinueWatching from "./pages/ContinueWatching";
+import Search from "./pages/Search";
 import SearchBar from "./components/SearchBar";
 import { initTheme } from "./services/themeService";
 
@@ -80,7 +83,7 @@ function AppContent() {
 
   return (
     <div className="app-container" style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: "var(--bg-primary)" }}>
-      {/* Dynamic Themed Scrollbars & Header Inputs */}
+      {/* Global Themed Scrollbars & Search Styling */}
       <style>{`
         ::-webkit-scrollbar {
           width: 6px;
@@ -101,7 +104,6 @@ function AppContent() {
           scrollbar-width: thin;
           scrollbar-color: var(--border-color, rgba(128, 128, 128, 0.3)) transparent;
         }
-        /* Make search input adapt to current theme */
         header input {
           background-color: var(--bg-primary) !important;
           color: var(--text-primary) !important;
@@ -109,7 +111,7 @@ function AppContent() {
         }
       `}</style>
 
-      {/* Top Navigation Header (Dynamic for Light & Dark Themes) */}
+      {/* Top Navigation Header */}
       <header
         style={{
           position: "sticky",
@@ -126,7 +128,6 @@ function AppContent() {
           transition: "background-color 0.25s ease, border-color 0.25s ease"
         }}
       >
-        {/* Brand / Logo */}
         <Link
           to="/"
           style={{
@@ -163,12 +164,10 @@ function AppContent() {
           </span>
         </Link>
 
-        {/* Global Search Bar */}
         <div style={{ flex: 1, maxWidth: "520px" }}>
           <SearchBar />
         </div>
 
-        {/* Nav Links */}
         <nav style={{ display: "flex", alignItems: "center", gap: "16px" }}>
           <Link
             to="/"
@@ -181,6 +180,19 @@ function AppContent() {
             }}
           >
             Home
+          </Link>
+
+          <Link
+            to="/continue-watching"
+            style={{
+              color: location.pathname === "/continue-watching" ? "var(--accent-color)" : "var(--text-primary)",
+              textDecoration: "none",
+              fontWeight: location.pathname === "/continue-watching" ? 700 : 600,
+              fontSize: "0.95rem",
+              transition: "color 0.2s ease"
+            }}
+          >
+            Continue Watching
           </Link>
 
           <Link
@@ -247,12 +259,22 @@ function AppContent() {
       <main style={{ flex: 1 }}>
         <Routes>
           <Route path="/" element={<Home />} />
+          <Route path="/search" element={<Search />} />
           <Route path="/watchlist" element={<WatchList />} />
-          <Route path="/watchlist/:category" element={<WatchList />} />
+          <Route path="/watchlist/:category" element={<WatchListCategory />} />
           <Route path="/schedule" element={<Schedule />} />
           <Route path="/settings" element={<Settings />} />
+
+          {/* Details Routes */}
           <Route path="/details/:id" element={<AnimeDetails />} />
+          <Route path="/anime/:id" element={<AnimeDetails />} />
+
+          {/* Player Routes */}
           <Route path="/watch/:id" element={<Player />} />
+          <Route path="/watch/:id/:episode" element={<Player />} />
+          <Route path="/player/:id" element={<Player />} />
+          <Route path="/player/:id/:episode" element={<Player />} />
+
           <Route path="/continue-watching" element={<ContinueWatching />} />
         </Routes>
       </main>

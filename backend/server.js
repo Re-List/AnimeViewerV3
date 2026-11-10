@@ -9,6 +9,7 @@ const axios = require("axios");
 const getDB = require("./database/db");
 const favoritesRoute = require("./routes/Favorites");
 const historyRoute = require("./routes/history");
+const downloadsRoute = require("./routes/downloads");
 
 const PORT = process.env.PORT || 5000;
 const app = express();
@@ -18,7 +19,6 @@ const app = express();
 // ========================================================
 const MASTER_MAL_CLIENT_ID = "956acf7dab4c48da35604da2c88e151a";
 
-// Helper to launch system default browser reliably on Windows/macOS/Linux
 function openInSystemBrowser(url) {
   if (process.platform === "win32") {
     exec(`start "" "${url}"`);
@@ -35,6 +35,7 @@ app.use(express.json({ limit: "5mb" }));
 // API routes
 app.use("/favorites", favoritesRoute);
 app.use("/history", historyRoute);
+app.use("/downloads", downloadsRoute);
 
 // ========================================================
 // MYANIMELIST (MAL) OAUTH & WATCHLIST SYNC
@@ -59,7 +60,7 @@ app.get("/auth/mal/login", (req, res) => {
   const redirectUri = "http://localhost:5000";
   const authUrl = `https://myanimelist.net/v1/oauth2/authorize?response_type=code&client_id=${clientId}&code_challenge=${codeVerifier}&code_challenge_method=plain&redirect_uri=${encodeURIComponent(redirectUri)}`;
   
-  // Launch Windows default browser (Chrome/Edge/Brave) directly
+  // Launch Windows default browser
   openInSystemBrowser(authUrl);
 
   res.redirect(authUrl);

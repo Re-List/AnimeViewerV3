@@ -10,7 +10,7 @@ const MEDIA_FIELDS = `
   coverImage { extraLarge large }
   bannerImage
   episodes
-  nextAiringEpisode { episode }
+  nextAiringEpisode { episode airingAt timeUntilAiring }
   description
   averageScore
   status
@@ -40,9 +40,7 @@ function getCache(key) {
 function setCache(key, data) {
   try {
     localStorage.setItem(key, JSON.stringify({ data, expiry: Date.now() + CACHE_TTL }));
-  } catch {
-    // storage full or unavailable - caching is optional
-  }
+  } catch {}
 }
 
 function toDateString(d) {
@@ -92,6 +90,13 @@ const FORMAT_LABEL = {
 export function toJikanShape(media) {
   if (!media?.idMal) return null;
   const cover = media.coverImage?.extraLarge || media.coverImage?.large || "";
+
+  // Dynamically resolve current episode count based on next airing schedule if active
+  let calculatedEpisodes = media.episodes;
+  if (media.status === "RELEASING" && media.nextAiringEpisode?.episode) {
+    calculatedEpisodes = Math.max(1, media.nextAiringEpisode.episode - 1);
+  }
+
   return {
     mal_id: media.idMal,
     title: media.title?.romaji || media.title?.english || "Untitled",
@@ -104,8 +109,9 @@ export function toJikanShape(media) {
       },
     },
     type: FORMAT_LABEL[media.format] || media.format || null,
-    episodes: media.episodes || null,
+    episodes: calculatedEpisodes || media.episodes || null,
     next_episode: media.nextAiringEpisode?.episode || null,
+    next_airing: media.nextAiringEpisode || null,
     synopsis: stripHtml(media.description),
     score: media.averageScore ? media.averageScore / 10 : null,
     status: STATUS_LABEL[media.status] || media.status || "Unknown",
@@ -142,10 +148,11 @@ function currentSeason() {
 }
 
 async function anilist(query, variables) {
-  const response = await axios.post(ANILIST, { query, variables }, {
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    timeout: 20000,
-  });
+  const response = await axios.post(
+    ANILIST,
+    { query, variables },
+    { headers: { "Content-Type": "application/json", Accept: "application/json" }, timeout: 20000 }
+  );
   if (response.data?.errors?.length) {
     throw new Error(response.data.errors[0].message || "AniList error");
   }
@@ -288,7 +295,6 @@ export async function getAnimeRelations(id) {
   }
 }
 
-// Queries live weekly broadcast calendar from AniList
 export async function getAiringSchedule(dayOffset = 0) {
   const now = new Date();
   const targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + dayOffset);
@@ -317,10 +323,7 @@ export async function getAiringSchedule(dayOffset = 0) {
   `;
 
   try {
-    const res = await axios.post(ANILIST, {
-      query,
-      variables: { start: startOfDay, end: endOfDay },
-    });
+    const res = await axios.post(ANILIST, { query, variables: { start: startOfDay, end: endOfDay } });
     const schedules = res.data?.data?.Page?.airingSchedules || [];
     return schedules
       .filter((s) => s.media?.idMal && s.media?.format === "TV")

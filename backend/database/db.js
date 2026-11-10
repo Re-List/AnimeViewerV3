@@ -1,3 +1,4 @@
+// backend/database/db.js
 const path = require("path");
 const fs = require("fs");
 const sqlite3 = require("sqlite3").verbose();
@@ -23,23 +24,30 @@ async function initSchema(db) {
             watched_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             hidden INTEGER NOT NULL DEFAULT 0
         );
+
+        CREATE TABLE IF NOT EXISTS downloads (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            anime_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            episode INTEGER NOT NULL,
+            image TEXT,
+            file_path TEXT NOT NULL,
+            file_size INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'downloading',
+            progress INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
     `);
 
-    // Migration: databases created by older versions have no "hidden" column.
     const cols = await db.all("PRAGMA table_info(history)");
     if (!cols.some((c) => c.name === "hidden")) {
-        await db.exec(
-            "ALTER TABLE history ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0"
-        );
+        await db.exec("ALTER TABLE history ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0");
     }
 }
 
-// The promise (not the instance) is cached, so two requests arriving at the
-// same time can never open the database twice.
 function getDB() {
     if (!dbPromise) {
         dbPromise = (async () => {
-            // Uses %APPDATA%\AnimeViewer in production so Windows permissions never block saving
             const dataDir = process.env.APPDATA 
                 ? path.join(process.env.APPDATA, "AnimeViewer")
                 : path.resolve(__dirname, "..");
@@ -49,7 +57,6 @@ function getDB() {
             }
 
             const dbFilePath = path.join(dataDir, "database.sqlite");
-
             const db = await open({
                 filename: dbFilePath,
                 driver: sqlite3.Database
@@ -62,29 +69,25 @@ function getDB() {
             `);
 
             await initSchema(db);
-
-            // Fold any leftover -wal data back into database.sqlite.
             await db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
 
             return db;
         })().catch((err) => {
-            dbPromise = null; // allow a retry on the next request
+            dbPromise = null;
             throw err;
         });
     }
     return dbPromise;
 }
 
-// Called on shutdown: merges the WAL into the main file so that
-// database.sqlite on its own always holds all of your data.
 async function closeDB() {
     if (!dbPromise) return;
     try {
         const db = await dbPromise;
         await db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
         await db.close();
-    } catch (err) {
-        console.error("Error while closing database:", err);
+    } catch (error) {
+        console.error("Error while closing database:", error);
     } finally {
         dbPromise = null;
     }

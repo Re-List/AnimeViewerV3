@@ -1,294 +1,605 @@
 // frontend/src/pages/AnimeDetails.jsx
-import { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
-import { getAnimeDetails, getAnimeRelations } from "../services/animeService";
-import { getLatestEpisode } from "../services/historyService";
-import { addToWatchlist } from "../services/watchlistService";
+import React, { useState, useEffect } from "react";
+import { useParams, Link, useNavigate } from "react-router-dom";
+import { getAnimeDetails, getAnimeRelations, getEpisodeCount } from "../services/animeService";
+import {
+  addToWatchlist,
+  removeFromWatchlist,
+  getAllWatchlist,
+} from "../services/watchlistService";
+import { getHistory, getLatestEpisode } from "../services/historyService";
+import { startEpisodeDownload } from "../services/downloadService";
 
-function AnimeDetails() {
+export default function AnimeDetails() {
   const { id } = useParams();
+  const navigate = useNavigate();
+
   const [anime, setAnime] = useState(null);
   const [relatedAnime, setRelatedAnime] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [targetEpisode, setTargetEpisode] = useState(1);
-  const [hasHistory, setHasHistory] = useState(false);
+  const [error, setError] = useState(null);
+
+  const [inWatchlist, setInWatchlist] = useState(false);
+  const [watchlistStatus, setWatchlistStatus] = useState("watching");
+  const [watchedEpisodes, setWatchedEpisodes] = useState([]);
+  const [lastWatchedEp, setLastWatchedEp] = useState(1);
+
+  const [showFullSynopsis, setShowFullSynopsis] = useState(false);
+  const [episodeSearch, setEpisodeSearch] = useState("");
+  const [episodeRange, setEpisodeRange] = useState(0);
+
+  const [episodesExpanded, setEpisodesExpanded] = useState(false);
+  const [franchiseExpanded, setFranchiseExpanded] = useState(false);
+
   const [toastMessage, setToastMessage] = useState("");
   const [showToast, setShowToast] = useState(false);
-  const [selectedStatus, setSelectedStatus] = useState("");
-  const [showRelated, setShowRelated] = useState(false);
-  const [showFullSynopsis, setShowFullSynopsis] = useState(false);
 
   const triggerToast = (msg) => {
     setToastMessage(msg);
     setShowToast(true);
-    setTimeout(() => setShowToast(false), 3500);
+    setTimeout(() => setShowToast(false), 3000);
   };
 
   useEffect(() => {
     let cancelled = false;
 
-    async function loadAnimeData() {
+    async function loadAllDetails() {
       setLoading(true);
-      setHasHistory(false);
-      setTargetEpisode(1);
+      setError(null);
       window.scrollTo(0, 0);
 
       try {
-        const data = await getAnimeDetails(id);
-        if (cancelled) return;
-        setAnime(data);
+        const [details, related, watchlist, history, latestEp] = await Promise.all([
+          getAnimeDetails(id),
+          getAnimeRelations(id).catch(() => []),
+          getAllWatchlist().catch(() => []),
+          getHistory().catch(() => []),
+          getLatestEpisode(id).catch(() => null),
+        ]);
 
-        const related = await getAnimeRelations(id);
         if (cancelled) return;
+
+        if (!details) {
+          throw new Error("Unable to retrieve anime metadata.");
+        }
+
+        setAnime(details);
         setRelatedAnime(related || []);
-      } catch (err) {
-        console.error("Failed to fetch data:", err);
-      }
 
-      try {
-        const latestEp = await getLatestEpisode(id);
-        if (cancelled) return;
         if (latestEp) {
-          setTargetEpisode(latestEp);
-          setHasHistory(true);
+          setLastWatchedEp(Number(latestEp));
+        }
+
+        if (watchlist && Array.isArray(watchlist)) {
+          const match = watchlist.find((item) => String(item.anime_id) === String(id));
+          if (match) {
+            setInWatchlist(true);
+            setWatchlistStatus(match.status || "watching");
+          } else {
+            setInWatchlist(false);
+          }
+        }
+
+        if (history && Array.isArray(history)) {
+          const watched = history
+            .filter((h) => String(h.anime_id) === String(id))
+            .map((h) => Number(h.episode));
+          setWatchedEpisodes(watched);
         }
       } catch (err) {
-        console.warn("Could not load watch progress:", err);
+        console.error("Failed to load anime details:", err);
+        if (!cancelled) setError(err.message || "Failed to load details");
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-
-      if (!cancelled) setLoading(false);
     }
 
-    loadAnimeData();
+    loadAllDetails();
+
     return () => {
       cancelled = true;
     };
   }, [id]);
 
-  const handleWatchlistChange = async (e) => {
-    const status = e.target.value;
-    if (!status || !anime) return;
+  if (loading) {
+    return (
+      <div style={{ minHeight: "85vh", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}>
+        <p style={{ fontSize: "16px", fontWeight: 600 }}>Loading anime details…</p>
+      </div>
+    );
+  }
 
+  if (error || !anime) {
+    return (
+      <div style={{ textAlign: "center", padding: "100px 20px", color: "var(--text-muted)" }}>
+        <h2 style={{ color: "var(--text-primary)" }}>{error || "Anime Not Found"}</h2>
+        <Link to="/" style={{ color: "var(--accent-color, #ff0080)", textDecoration: "none", fontWeight: 700, marginTop: "12px", display: "inline-block" }}>
+          ← Return to Home
+        </Link>
+      </div>
+    );
+  }
+
+  const romajiTitle = (typeof anime.title === "string" ? anime.title : anime.title?.romaji) || "Anime";
+  const englishTitle = anime.title_english || anime.title?.english || null;
+  const nativeTitle = anime.title_japanese || anime.title?.native || null;
+
+  const poster =
+    anime.images?.jpg?.large_image_url ||
+    anime.images?.jpg?.image_url ||
+    anime.coverImage?.extraLarge ||
+    anime.coverImage?.large ||
+    anime.image ||
+    "";
+  const banner = anime.bannerImage || poster;
+  const totalEps = getEpisodeCount(anime) || anime.episodes || anime.totalEpisodes || 12;
+  const score = anime.score || (anime.averageScore ? (anime.averageScore / 10).toFixed(1) : null);
+  const status = anime.status?.replace(/_/g, " ") || "AIRING";
+  const type = anime.type || anime.format || "TV";
+  const genres = anime.genres?.map((g) => (typeof g === "string" ? g : g.name)) || [];
+  const synopsis = anime.synopsis || anime.description || "No synopsis available.";
+
+  const allEpNumbers = Array.from({ length: totalEps }, (_, i) => i + 1);
+  const filteredEpisodes = episodeSearch.trim()
+    ? allEpNumbers.filter((ep) => String(ep).includes(episodeSearch.trim()))
+    : allEpNumbers.slice(episodeRange * 100, (episodeRange + 1) * 100);
+
+  const displayedEpisodes = episodesExpanded ? filteredEpisodes : filteredEpisodes.slice(0, 12);
+  const rangeCount = Math.ceil(totalEps / 100);
+
+  const handleWatchlistToggle = async () => {
     try {
-      await addToWatchlist(anime, status);
-      const statusNames = {
-        watching: "Currently Watching",
-        completed: "Completed",
-        dropped: "Dropped",
-        planned: "Plan to Watch",
-        onhold: "On Hold",
-      };
-      triggerToast(`📌 Added to ${statusNames[status]}!`);
-      setSelectedStatus("");
-    } catch (error) {
-      console.error(error);
-      triggerToast("❌ Failed to add to watchlist");
+      if (inWatchlist) {
+        await removeFromWatchlist(id);
+        setInWatchlist(false);
+        triggerToast("Removed from Watch List");
+      } else {
+        await addToWatchlist({
+          anime_id: id,
+          title: romajiTitle,
+          image: poster,
+          status: watchlistStatus,
+        });
+        setInWatchlist(true);
+        triggerToast("Added to Watch List!");
+      }
+    } catch (err) {
+      console.error("Watchlist error:", err);
+      triggerToast("Failed to update watchlist");
     }
   };
 
-  if (loading) return <h2 style={{ textAlign: "center", padding: "50px", color: "var(--text-primary)" }}>Loading...</h2>;
-  if (!anime) return <h2 style={{ textAlign: "center", padding: "50px", color: "var(--text-primary)" }}>Anime not found.</h2>;
+  const handleStatusChange = async (e) => {
+    const newStatus = e.target.value;
+    setWatchlistStatus(newStatus);
+    if (inWatchlist) {
+      try {
+        await addToWatchlist({
+          anime_id: id,
+          title: romajiTitle,
+          image: poster,
+          status: newStatus,
+        });
+        triggerToast("Watchlist status updated!");
+      } catch (err) {
+        console.error("Status update error:", err);
+      }
+    }
+  };
 
-  const title = anime.title_english || anime.title;
-  const japaneseTitle = anime.title_japanese;
-  const synopsis = anime.synopsis || "No synopsis available.";
-  const truncatedSynopsis = synopsis.length > 420 ? synopsis.substring(0, 420) + "..." : synopsis;
-  const visibleRelated = showRelated ? relatedAnime : relatedAnime.slice(0, 6);
+  const handleDownloadAnime = async () => {
+    triggerToast(`Queuing ${Math.min(totalEps, 24)} episodes for download. Check Downloads tab!`);
+    for (let i = 1; i <= Math.min(totalEps, 24); i++) {
+      const streamUrl = `https://megaplay.buzz/stream/mal/${id}/${i}/sub`;
+      await startEpisodeDownload(id, romajiTitle, i, poster, streamUrl).catch(() => {});
+    }
+  };
 
   return (
-    <div style={{ background: "var(--bg-primary)", minHeight: "100vh", color: "var(--text-primary)", padding: "24px 28px 60px", transition: "all 0.25s ease" }}>
+    <div style={{ minHeight: "100vh", backgroundColor: "var(--bg-primary)", color: "var(--text-primary)", paddingBottom: "70px", position: "relative" }}>
       {showToast && (
-        <div style={{
-          position: "fixed", bottom: "30px", right: "30px", background: "var(--bg-surface)",
-          color: "var(--text-primary)", padding: "14px 24px", borderRadius: "10px", border: "1px solid var(--border-color)",
-          zIndex: 9999, fontSize: "14px", fontWeight: "600", boxShadow: "0 10px 30px rgba(0,0,0,0.4)"
-        }}>
+        <div
+          style={{
+            position: "fixed",
+            bottom: "28px",
+            right: "28px",
+            background: "var(--bg-surface)",
+            color: "var(--text-primary)",
+            padding: "12px 20px",
+            borderRadius: "10px",
+            border: "1px solid var(--accent-color, #ff0080)",
+            boxShadow: "0 8px 30px rgba(0,0,0,0.6)",
+            zIndex: 9999,
+            fontWeight: 700,
+            fontSize: "13px",
+          }}
+        >
           {toastMessage}
         </div>
       )}
 
-      <div style={{ display: "flex", gap: "30px", flexWrap: "wrap" }}>
-        {/* Poster */}
-        <div style={{ flexShrink: 0 }}>
+      {/* 1. Hero Banner */}
+      <div style={{ position: "relative", width: "100%", height: "340px", overflow: "hidden", backgroundColor: "#0a0a10" }}>
+        {banner && (
           <img
-            src={anime.images.jpg.large_image_url}
-            alt={title}
-            referrerPolicy="no-referrer"
-            style={{ width: "300px", borderRadius: "12px", border: "1px solid var(--border-color)", boxShadow: "0 10px 30px rgba(0,0,0,0.3)" }}
+            src={banner}
+            alt={romajiTitle}
+            style={{ width: "100%", height: "100%", objectFit: "cover", opacity: 0.35, filter: "blur(3px)" }}
           />
-        </div>
-
-        {/* Info */}
-        <div style={{ flex: 1, minWidth: "300px" }}>
-          <h1 style={{ marginBottom: "8px", fontSize: "28px", fontWeight: 700 }} title={japaneseTitle || title}>
-            {title}
-          </h1>
-
-          {japaneseTitle && (
-            <p style={{ color: "var(--text-muted)", fontSize: "15px", marginBottom: "20px" }}>
-              <strong>Alternate Title:</strong> {japaneseTitle}
-            </p>
-          )}
-
-          <div style={{ marginBottom: "25px", color: "var(--text-primary)", fontSize: "15px" }}>
-            <p style={{ marginBottom: "12px" }}>
-              <strong style={{ color: "var(--text-muted)" }}>Score:</strong> ★ {anime.score || "N/A"}
-            </p>
-            <p style={{ marginBottom: "12px" }}>
-              <strong style={{ color: "var(--text-muted)" }}>Status:</strong> {anime.status}
-            </p>
-            <p style={{ marginBottom: "12px" }}>
-              <strong style={{ color: "var(--text-muted)" }}>Started Airing:</strong> {anime.aired?.from ? new Date(anime.aired.from).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : "Unknown"}
-            </p>
-            <p style={{ marginBottom: "12px" }}>
-              <strong style={{ color: "var(--text-muted)" }}>Episodes:</strong> {anime.episodes || "Ongoing"}
-            </p>
-          </div>
-
-          {/* Action buttons */}
-          <div style={{ display: "flex", gap: "15px", marginBottom: "30px", flexWrap: "wrap" }}>
-            <select
-              value={selectedStatus}
-              onChange={handleWatchlistChange}
-              style={{
-                padding: "12px 16px",
-                background: "var(--bg-surface)",
-                color: "var(--text-primary)",
-                border: "1px solid var(--border-color)",
-                borderRadius: "8px",
-                fontSize: "14px",
-                cursor: "pointer",
-              }}
-            >
-              <option value="">➕ Add to List...</option>
-              <option value="watching">▶ Watching</option>
-              <option value="completed">✔️ Completed</option>
-              <option value="onhold">⏸️ On Hold</option>
-              <option value="dropped">❌ Dropped</option>
-              <option value="planned">⏳ Plan to Watch</option>
-            </select>
-
-            <Link to={`/player/${id}/${targetEpisode}`} style={{ textDecoration: 'none' }}>
-              <button style={{
-                background: "var(--accent-gradient)", color: "white", fontWeight: "bold",
-                border: "none", padding: "12px 28px", borderRadius: "8px", fontSize: "15px", cursor: "pointer",
-                boxShadow: "0 4px 14px rgba(0,0,0,0.2)"
-              }}>
-                {hasHistory ? `▶ Resume Ep. ${targetEpisode}` : "▶ Start Watching"}
-              </button>
-            </Link>
-          </div>
-
-          {/* Synopsis */}
-          <div style={{
-            background: "var(--bg-surface)",
-            padding: "22px",
-            borderRadius: "12px",
-            border: "1px solid var(--border-color)",
-            boxShadow: "0 4px 14px rgba(0,0,0,0.1)"
-          }}>
-            <h3 style={{ marginTop: 0, marginBottom: "12px", color: "var(--text-primary)" }}>Synopsis</h3>
-            <p style={{ lineHeight: "1.7", color: "var(--text-muted)", fontSize: "14px" }}>
-              {showFullSynopsis ? synopsis : truncatedSynopsis}
-            </p>
-            {synopsis.length > 420 && (
-              <button
-                onClick={() => setShowFullSynopsis(!showFullSynopsis)}
-                style={{
-                  marginTop: "12px",
-                  background: "none",
-                  border: "none",
-                  color: "#38bdf8",
-                  cursor: "pointer",
-                  fontSize: "13px",
-                  fontWeight: "600",
-                }}
-              >
-                {showFullSynopsis ? "Read Less ▲" : "Read More ▼"}
-              </button>
-            )}
-          </div>
-        </div>
+        )}
+        <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(10, 10, 18, 0.25) 0%, var(--bg-primary) 100%)" }} />
       </div>
 
-      {/* Related Seasons & Media */}
-      {relatedAnime.length > 0 && (
-        <div style={{
-          marginTop: "40px",
-          background: "var(--bg-surface)",
-          padding: "24px",
-          borderRadius: "12px",
-          border: "1px solid var(--border-color)",
-        }}>
-          {/* Clickable Header with Expand Toggle Chevron */}
-          <div
-            onClick={() => setShowRelated(!showRelated)}
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              cursor: "pointer",
-              paddingBottom: "15px",
-              borderBottom: "1px solid var(--border-color)",
-            }}
-          >
-            <h2 style={{ fontSize: "18px", margin: 0, color: "var(--text-primary)", fontWeight: 700 }}>
-              Related Seasons & Media ({relatedAnime.length})
-            </h2>
-            <span
+      {/* 2. Main Details Wrapper */}
+      <div style={{ maxWidth: "1280px", margin: "-150px auto 0", padding: "0 24px", position: "relative", zIndex: 10 }}>
+        <div style={{ display: "flex", gap: "34px", alignItems: "flex-start", flexWrap: "wrap" }}>
+          {/* Left Column: Poster & Actions */}
+          <div style={{ width: "240px", flexShrink: 0 }}>
+            <img
+              src={poster}
+              alt={romajiTitle}
               style={{
-                fontSize: "16px",
-                color: "var(--text-muted)",
-                background: "var(--bg-primary)",
+                width: "100%",
+                borderRadius: "14px",
                 border: "1px solid var(--border-color)",
-                padding: "4px 10px",
-                borderRadius: "6px",
-                fontWeight: 600,
+                boxShadow: "0 18px 45px rgba(0, 0, 0, 0.65)",
+                display: "block",
+              }}
+            />
+
+            <button
+              type="button"
+              onClick={handleWatchlistToggle}
+              style={{
+                width: "100%",
+                marginTop: "16px",
+                padding: "12px",
+                borderRadius: "10px",
+                border: inWatchlist ? "1px solid rgba(16, 185, 129, 0.4)" : "none",
+                background: inWatchlist ? "rgba(16, 185, 129, 0.15)" : "var(--accent-gradient, var(--brand-primary, #ff0080))",
+                color: inWatchlist ? "#10b981" : "#ffffff",
+                fontWeight: 700,
+                fontSize: "13px",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "8px",
               }}
             >
-              {showRelated ? "Collapse ▲" : `Expand (${relatedAnime.length}) ▼`}
-            </span>
-          </div>
+              <span>{inWatchlist ? "✓ In Watch List" : "+ Add to Watch List"}</span>
+            </button>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "12px", marginTop: "18px" }}>
-            {visibleRelated.map((rel, idx) => (
-              <Link
-                key={idx}
-                to={`/anime/${rel.mal_id}`}
+            {inWatchlist && (
+              <select
+                value={watchlistStatus}
+                onChange={handleStatusChange}
                 style={{
-                  textDecoration: "none",
-                  background: "var(--bg-primary)",
-                  border: "1px solid var(--border-color)",
+                  width: "100%",
+                  marginTop: "8px",
+                  padding: "8px 12px",
                   borderRadius: "8px",
-                  padding: "12px 14px",
-                  display: "block",
+                  backgroundColor: "var(--bg-surface)",
                   color: "var(--text-primary)",
-                  transition: "all 0.2s ease"
+                  border: "1px solid var(--border-color)",
+                  fontSize: "12px",
+                  fontWeight: 600,
+                  cursor: "pointer",
                 }}
               >
-                <div style={{ fontSize: "11px", fontWeight: "bold", color: "#38bdf8", textTransform: "uppercase", marginBottom: "4px" }}>
-                  {rel.relation || "Related"}
-                </div>
-                {/* Shows the actual anime name */}
-                <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {rel.name || rel.title || "Related Anime"}
-                </div>
-              </Link>
-            ))}
+                <option value="watching">Currently Watching</option>
+                <option value="completed">Completed</option>
+                <option value="onhold">On-Hold</option>
+                <option value="dropped">Dropped</option>
+                <option value="planned">Plan to Watch</option>
+              </select>
+            )}
+
+            <button
+              type="button"
+              onClick={() => navigate(`/watch/${id}/${lastWatchedEp || 1}`)}
+              style={{
+                width: "100%",
+                marginTop: "12px",
+                padding: "12px",
+                borderRadius: "10px",
+                border: "none",
+                background: "var(--accent-gradient, var(--brand-primary, #ff0080))",
+                color: "#ffffff",
+                fontWeight: 800,
+                fontSize: "13px",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "8px",
+                boxShadow: "0 4px 16px rgba(0, 0, 0, 0.3)",
+              }}
+            >
+              <span>▶</span> {lastWatchedEp > 1 ? `Continue Ep ${lastWatchedEp}` : "Start Watching Ep 1"}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleDownloadAnime}
+              style={{
+                width: "100%",
+                marginTop: "8px",
+                padding: "10px",
+                borderRadius: "8px",
+                border: "1px solid var(--border-color)",
+                background: "var(--bg-surface)",
+                color: "var(--text-primary)",
+                fontSize: "12px",
+                fontWeight: 700,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "6px",
+              }}
+            >
+              <span>📥</span> Download Anime
+            </button>
           </div>
 
-          {!showRelated && relatedAnime.length > 6 && (
-            <div
-              onClick={() => setShowRelated(true)}
-              style={{ textAlign: "center", marginTop: "15px", color: "var(--text-muted)", fontSize: "13px", cursor: "pointer", fontWeight: 500 }}
-            >
-              + {relatedAnime.length - 6} more (click to show all)
+          {/* Right Column: Titles & Metadata */}
+          <div style={{ flex: 1, minWidth: "300px" }}>
+            <h1 style={{ margin: "0 0 6px", fontSize: "2.1rem", fontWeight: 800, color: "var(--text-primary)" }}>
+              {romajiTitle}
+            </h1>
+
+            {/* Alternate English & Japanese Titles */}
+            <div style={{ marginBottom: "14px", display: "flex", flexDirection: "column", gap: "2px" }}>
+              {englishTitle && englishTitle !== romajiTitle && (
+                <div style={{ fontSize: "1.1rem", color: "var(--accent-color, #ff0080)", fontWeight: 600 }}>
+                  <span style={{ color: "var(--text-muted)", fontSize: "0.85rem", textTransform: "uppercase", marginRight: "6px" }}>English:</span>
+                  {englishTitle}
+                </div>
+              )}
+              {nativeTitle && (
+                <div style={{ fontSize: "0.95rem", color: "var(--text-muted)", fontWeight: 500 }}>
+                  <span style={{ color: "var(--text-muted)", fontSize: "0.8rem", textTransform: "uppercase", marginRight: "6px" }}>Japanese:</span>
+                  {nativeTitle}
+                </div>
+              )}
             </div>
-          )}
+
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "18px", flexWrap: "wrap" }}>
+              <span style={{ background: "var(--bg-surface)", border: "1px solid var(--border-color)", padding: "4px 10px", borderRadius: "6px", fontSize: "12px", fontWeight: 700 }}>
+                {type}
+              </span>
+
+              {score && (
+                <span style={{ background: "rgba(245, 158, 11, 0.15)", color: "#f59e0b", padding: "4px 10px", borderRadius: "6px", fontSize: "12px", fontWeight: 700 }}>
+                  ★ {score}
+                </span>
+              )}
+
+              <span style={{ background: "var(--bg-surface)", border: "1px solid var(--border-color)", padding: "4px 10px", borderRadius: "6px", fontSize: "12px", fontWeight: 600, color: "var(--text-muted)" }}>
+                {totalEps} Episodes
+              </span>
+
+              <span style={{ background: "var(--bg-surface)", border: "1px solid var(--border-color)", padding: "4px 10px", borderRadius: "6px", fontSize: "12px", fontWeight: 700, color: "var(--accent-color, #ff0080)" }}>
+                {status}
+              </span>
+            </div>
+
+            <div style={{ display: "flex", gap: "6px", marginBottom: "20px", flexWrap: "wrap" }}>
+              {genres.map((g, idx) => (
+                <span
+                  key={idx}
+                  style={{
+                    fontSize: "11px",
+                    fontWeight: 600,
+                    padding: "3px 10px",
+                    borderRadius: "20px",
+                    background: "rgba(255, 255, 255, 0.06)",
+                    color: "var(--text-primary)",
+                    border: "1px solid var(--border-color)",
+                  }}
+                >
+                  {g}
+                </span>
+              ))}
+            </div>
+
+            <div style={{ marginBottom: "28px", maxWidth: "880px" }}>
+              <p
+                style={{
+                  color: "var(--text-muted)",
+                  fontSize: "14px",
+                  lineHeight: 1.6,
+                  margin: 0,
+                  display: showFullSynopsis ? "block" : "-webkit-box",
+                  WebkitLineClamp: showFullSynopsis ? "none" : 4,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                }}
+              >
+                {synopsis}
+              </p>
+              {synopsis.length > 250 && (
+                <button
+                  type="button"
+                  onClick={() => setShowFullSynopsis(!showFullSynopsis)}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: "var(--accent-color, #ff0080)",
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    padding: "6px 0 0",
+                  }}
+                >
+                  {showFullSynopsis ? "Show Less ▲" : "Read More ▼"}
+                </button>
+              )}
+            </div>
+          </div>
         </div>
-      )}
+
+        {/* 3. Episodes Grid — Collapsible (1 row of 12 episodes by default) */}
+        <div style={{ marginTop: "45px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "18px", borderBottom: "1px solid var(--border-color)", paddingBottom: "14px", flexWrap: "wrap", gap: "12px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              <h3 style={{ margin: 0, fontSize: "1.25rem", color: "var(--text-primary)" }}>
+                Episodes ({totalEps})
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEpisodesExpanded(!episodesExpanded)}
+                style={{
+                  background: "var(--bg-surface)",
+                  border: "1px solid var(--border-color)",
+                  color: "var(--accent-color, #ff0080)",
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  padding: "4px 10px",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                }}
+              >
+                {episodesExpanded ? "Collapse ▲ (Show 1 Row)" : "Show All Episodes ▼"}
+              </button>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              {episodesExpanded && rangeCount > 1 && (
+                <div style={{ display: "flex", gap: "4px", background: "var(--bg-surface)", padding: "2px", borderRadius: "6px", border: "1px solid var(--border-color)" }}>
+                  {Array.from({ length: rangeCount }, (_, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => setEpisodeRange(i)}
+                      style={{
+                        padding: "4px 8px",
+                        borderRadius: "4px",
+                        border: "none",
+                        fontSize: "11px",
+                        fontWeight: episodeRange === i ? 700 : 500,
+                        color: episodeRange === i ? "#ffffff" : "var(--text-muted)",
+                        background: episodeRange === i ? "var(--accent-gradient, #ff0080)" : "transparent",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {i * 100 + 1}-{Math.min((i + 1) * 100, totalEps)}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <input
+                type="text"
+                placeholder="Find episode #..."
+                value={episodeSearch}
+                onChange={(e) => {
+                  setEpisodeSearch(e.target.value);
+                  if (e.target.value.trim()) setEpisodesExpanded(true);
+                }}
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: "6px",
+                  border: "1px solid var(--border-color)",
+                  backgroundColor: "var(--bg-surface)",
+                  color: "var(--text-primary)",
+                  fontSize: "12px",
+                  width: "130px",
+                  outline: "none",
+                }}
+              />
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: "10px" }}>
+            {displayedEpisodes.map((ep) => {
+              const isWatched = watchedEpisodes.includes(ep);
+              return (
+                <button
+                  key={ep}
+                  type="button"
+                  onClick={() => navigate(`/watch/${id}/${ep}`)}
+                  style={{
+                    backgroundColor: "var(--bg-surface)",
+                    border: isWatched ? "1px solid rgba(16, 185, 129, 0.4)" : "1px solid var(--border-color)",
+                    borderRadius: "10px",
+                    padding: "10px 12px",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <span style={{ fontSize: "12.5px", fontWeight: 700, color: "var(--text-primary)" }}>
+                    Ep {ep}
+                  </span>
+                  {isWatched && (
+                    <span style={{ fontSize: "11px", color: "#10b981", fontWeight: 700 }}>
+                      ✓
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 4. Related Franchise Entries — Collapsible */}
+        {relatedAnime && relatedAnime.length > 0 && (
+          <div style={{ marginTop: "50px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", borderBottom: "1px solid var(--border-color)", paddingBottom: "10px" }}>
+              <h3 style={{ margin: 0, fontSize: "1.2rem", color: "var(--text-primary)" }}>
+                Related Franchise Entries ({relatedAnime.length})
+              </h3>
+              <button
+                type="button"
+                onClick={() => setFranchiseExpanded(!franchiseExpanded)}
+                style={{
+                  background: "var(--bg-surface)",
+                  border: "1px solid var(--border-color)",
+                  color: "var(--accent-color, #ff0080)",
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  padding: "4px 10px",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                }}
+              >
+                {franchiseExpanded ? "Collapse ▲" : "Expand Franchise ▼"}
+              </button>
+            </div>
+
+            {franchiseExpanded && (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "16px" }}>
+                {relatedAnime.map((item, idx) => (
+                  <Link
+                    key={idx}
+                    to={`/details/${item.mal_id}`}
+                    style={{
+                      textDecoration: "none",
+                      backgroundColor: "var(--bg-surface)",
+                      borderRadius: "10px",
+                      border: "1px solid var(--border-color)",
+                      padding: "12px",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "6px",
+                    }}
+                  >
+                    <span style={{ fontSize: "10px", color: "var(--accent-color, #ff0080)", fontWeight: 700, textTransform: "uppercase" }}>
+                      {item.relation}
+                    </span>
+                    <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {item.name}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
-
-export default AnimeDetails;
