@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Logo](https://raw.githubusercontent.com/Re-List/AnimeViewerV3/main/frontend/public/logo.png)
+<img src="https://raw.githubusercontent.com/Re-List/AnimeViewerV3/main/frontend/public/logo.png" width="180" alt="Re:List Logo">
 
 **A high-performance, ad-free desktop anime streaming and catalog player with seamless cloud synchronization.**
 
