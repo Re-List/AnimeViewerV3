@@ -10,6 +10,7 @@ import {
 } from "../services/animeService";
 import { getContinueWatching } from "../services/historyService";
 import AnimeTile from "../components/AnimeTile";
+import GenreBrowser from "../components/GenreBrowser";
 
 const HERO_SLIDES = 6;
 const HERO_INTERVAL_MS = 6000;
@@ -163,7 +164,6 @@ function Home() {
       {/* ========== HERO BANNER ========== */}
       {hero && (
         <div style={{ position: "relative", height: "460px", overflow: "hidden", marginBottom: "28px" }}>
-          {/* Background image */}
           <div
             style={{
               position: "absolute",
@@ -176,7 +176,6 @@ function Home() {
             }}
           />
 
-          {/* Always-Readable Dark Scrim for Hero Text (Guarantees crisp readability on light & dark themes) */}
           <div
             style={{
               position: "absolute",
@@ -186,7 +185,6 @@ function Home() {
             }}
           />
 
-          {/* Manual prev / next controls */}
           {heroCount > 1 && (
             <>
               <button type="button" onClick={prevHero} aria-label="Previous slide" style={heroArrowStyle("left")}>
@@ -304,7 +302,6 @@ function Home() {
             </div>
           </div>
 
-          {/* Slider Dots */}
           <div
             style={{
               position: "absolute",
@@ -428,6 +425,9 @@ function Home() {
         <ShelfRow icon="🔥" title="Trending Now" initial={data.trending} fetchPage={getTrending} />
         <ShelfRow icon="✨" title="This Season" initial={data.season} fetchPage={getThisSeason} />
         <ShelfRow icon="★" iconColor="#fbbf24" title="Top Rated" initial={data.rated} fetchPage={getTopRated} />
+
+        {/* ========== BROWSE BY GENRE BOX AT THE BOTTOM ========== */}
+        <GenreBrowser />
       </div>
     </div>
   );
@@ -440,6 +440,11 @@ function ShelfRow({ icon, iconColor, title, initial, fetchPage }) {
   const [done, setDone] = useState(initial.length === 0);
   const rowRef = useRef(null);
   const busyRef = useRef(false);
+
+  useEffect(() => {
+    setItems(initial);
+    setDone(initial.length === 0);
+  }, [initial]);
 
   const loadMore = async () => {
     if (busyRef.current || done) return;

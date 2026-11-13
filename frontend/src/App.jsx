@@ -10,40 +10,34 @@ import AnimeDetails from "./pages/AnimeDetails";
 import Player from "./pages/Player";
 import ContinueWatching from "./pages/ContinueWatching";
 import Search from "./pages/Search";
+import GenreResults from "./pages/GenreResults";
 import SearchBar from "./components/SearchBar";
 import { initTheme } from "./services/themeService";
 
-const APP_VERSION = "1.2.0";
+const APP_VERSION = "1.3.0";
 
 const RELEASE_CHANGELOG = [
   {
-    category: "⭐ Cloud Sync & Account Integration",
+    category: "🗂️ Genre Discovery & Browsing",
     items: [
-      "1-Click MyAnimeList (MAL) PKCE OAuth login without requiring your own developer client ID.",
-      "Bi-directional automatic watch progress syncing to your official MAL account.",
-      "One-click full library import from MAL directly into your local Watch List.",
-      "Pause & Resume auto-sync toggle button in Settings to preserve your MAL stats during rewatches."
+      "Added full genre support with dedicated catalog exploration pages.",
+      "Added intuitive filter by genre grid directly on the home screen.",
+      "Optimized category loading speeds with instant in-memory client caching."
     ]
   },
   {
-    category: "📅 Simulcast Schedule & Watch List",
+    category: "🔞 Adult Content Management",
     items: [
-      "Brand-new weekly Airing Schedule calendar organized by day with real-time countdown clocks.",
-      "Unwatched episode notification badges on the Watch List navigation tab."
+      "Added age limit toggle in Settings (safely hidden by default for clean browsing).",
+      "Added smart external search integration for mature series and unhosted titles.",
+      "Added prominent 18+ content badges on collection tiles."
     ]
   },
   {
-    category: "⚡ Streaming & Player",
+    category: "⚡ Performance & Stability",
     items: [
-      "Instant next-episode pre-buffering in the player for seamless binge watching.",
-      "Enhanced Discord Rich Presence showing the exact anime title, episode, and official poster art."
-    ]
-  },
-  {
-    category: "🎨 Theming & Visuals",
-    items: [
-      "6 built-in global themes (4 dark, 2 light) + custom hex gradient creator.",
-      "Dynamic adaptive top navigation bar and high-contrast buttons for both dark and light modes."
+      "Minor performance improvements across media cards and playlist rendering.",
+      "General bug fixes for player error handling and API rate-limit management."
     ]
   }
 ];
@@ -83,7 +77,6 @@ function AppContent() {
 
   return (
     <div className="app-container" style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: "var(--bg-primary)" }}>
-      {/* Global Themed Scrollbars & Search Styling */}
       <style>{`
         ::-webkit-scrollbar {
           width: 6px;
@@ -264,6 +257,7 @@ function AppContent() {
           <Route path="/watchlist/:category" element={<WatchListCategory />} />
           <Route path="/schedule" element={<Schedule />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/genre/:genreName" element={<GenreResults />} />
 
           {/* Details Routes */}
           <Route path="/details/:id" element={<AnimeDetails />} />
@@ -321,7 +315,7 @@ function AppContent() {
             </div>
 
             <p style={{ color: "var(--text-muted)", fontSize: "0.9rem", lineHeight: 1.5, marginTop: 0 }}>
-              We've packed this release with official MyAnimeList sync, a live simulcast calendar, instant pre-buffering, and UI polish!
+              We've packed version {APP_VERSION} with advanced genre catalogs, customizable age filters, external search integrations, and general optimizations!
             </p>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "16px", margin: "20px 0" }}>
@@ -365,7 +359,7 @@ function AppContent() {
               onMouseEnter={(e) => (e.target.style.transform = "scale(1.02)")}
               onMouseLeave={(e) => (e.target.style.transform = "scale(1)")}
             >
-              Got it, let's watch! 🚀
+              Let's explore v{APP_VERSION}! 🚀
             </button>
           </div>
         </div>

@@ -6,7 +6,7 @@
 
 **A high-performance, ad-free desktop anime streaming and catalog player with seamless cloud synchronization.**
 
-[![Version](https://img.shields.io/badge/version-1.2.2-blue.svg?style=for-the-badge)](https://github.com/Re-List/AnimeViewerV3/releases)
+[![Version](https://img.shields.io/badge/version-1.3.0-ff0080?style=for-the-badge)](https://github.com/Re-List/AnimeViewerV3/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20x64-brightgreen.svg?style=for-the-badge)](https://github.com/Re-List/AnimeViewerV3/releases)
 [![License](https://img.shields.io/badge/license-MIT-purple.svg?style=for-the-badge)](LICENSE)
 [![React](https://img.shields.io/badge/React-19.0-61dafb.svg?style=for-the-badge&logo=react)](https://react.dev/)
@@ -20,6 +20,14 @@
 
 ## 🌟 Key Features
 
+- **🗂️ Advanced Genre Discovery & Catalog**:
+  - Full genre support with dedicated catalog exploration pages.
+  - Interactive browse-by-genre grid directly on the home screen.
+  - Optimized category loading speeds with instant in-memory client caching.
+- **🔞 Mature Content & Age Control**:
+  - Dedicated age limit toggle in settings (safely hidden by default for clean browsing).
+  - Prominent 18+ content badges on collection and search tiles.
+  - Smart external video network and search integration for unhosted titles.
 - **⭐ 1-Click MyAnimeList & AniList Sync**:
   - Direct 1-click OAuth PKCE connection for MyAnimeList without needing your own developer Client ID.
   - Automatic progress tracking when finishing episodes.
@@ -29,8 +37,6 @@
   - Browse airing schedules by day of the week with real-time countdown clocks for upcoming releases.
 - **⚡ Next-Episode Pre-Buffering**:
   - Hidden stream pre-caching ensures zero wait times when binge-watching series.
-- **🔔 Unwatched Episode Badges**:
-  - Dynamic navigation counter highlights when new episodes drop for titles in your Watch List.
 - **🎨 Dynamic Theming Engine**:
   - 6 built-in presets: *Midnight Velvet*, *Cyber Neon*, *Crimson Eclipse*, *Emerald Abyss*, *Sakura Day*, and *Nordic Frost*.
   - Real-time custom 2-color gradient creator with persistent CSS variable styling.
@@ -57,7 +63,7 @@
 ## 📦 Installation
 
 1. Navigate to the [Latest Releases](https://github.com/Re-List/AnimeViewerV3/releases) page.
-2. Download **`ReList-Setup-1.2.2.exe`**.
+2. Download **`ReList-Setup-1.3.0.exe`**.
 3. Run the installer, select your install destination, and launch Re:List.
 4. Auto-updates will notify and install automatically on future releases.
 
@@ -78,8 +84,5 @@ cd AnimeViewerV3
 # 2. Install root dependencies
 npm install
 
-# 3. Build the React frontend
-npm run build
-
-# 4. Launch in development mode
+# 3. Build the React frontend & start application
 npm start

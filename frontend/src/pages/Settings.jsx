@@ -72,6 +72,11 @@ function Settings() {
   const [theaterDefault, setTheaterDefault] = useState(
     () => localStorage.getItem("playerTheater") === "1"
   );
+  
+  // 18+ Content State
+  const [show18Plus, setShow18Plus] = useState(
+    () => localStorage.getItem("relist_show_18plus") === "true"
+  );
 
   const [history, setHistory] = useState([]);
   const [watchlistStats, setWatchlistStats] = useState({
@@ -268,6 +273,13 @@ function Settings() {
     setTheaterDefault(on);
     localStorage.setItem("playerTheater", on ? "1" : "0");
     triggerToast(on ? "Theater mode default: On" : "Theater mode default: Off");
+  };
+  
+  const handleToggle18Plus = (on) => {
+    setShow18Plus(on);
+    localStorage.setItem("relist_show_18plus", on ? "true" : "false");
+    window.dispatchEvent(new Event("storage"));
+    triggerToast(on ? "18+ content enabled" : "18+ content hidden");
   };
 
   const copySupportEmail = () => {
@@ -556,6 +568,7 @@ function Settings() {
 
       {/* --- SETTINGS GRID --- */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: "14px", alignItems: "stretch" }}>
+        
         {/* AniList Live Auto-Sync */}
         <div style={card}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
@@ -763,6 +776,20 @@ function Settings() {
             </button>
             <button type="button" onClick={() => handleLanguageChange("dub")} style={pill(globalLanguage === "dub")}>
               English (DUB)
+            </button>
+          </div>
+        </div>
+        
+        {/* Content Filters */}
+        <div style={card}>
+          <h2 style={title}>🔞 Content Filters</h2>
+          <p style={desc}>Display mature series (Rx/Hentai) in search results and genre browsing.</p>
+          <div style={{ display: "flex", gap: "10px", marginTop: "auto" }}>
+            <button type="button" onClick={() => handleToggle18Plus(true)} style={pill(show18Plus)}>
+              Show 18+
+            </button>
+            <button type="button" onClick={() => handleToggle18Plus(false)} style={pill(!show18Plus)}>
+              Hide 18+
             </button>
           </div>
         </div>

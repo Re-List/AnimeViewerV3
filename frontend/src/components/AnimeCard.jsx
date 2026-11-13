@@ -6,19 +6,107 @@ import {
   removeFromWatchlist,
   getAllWatchlist,
 } from "../services/watchlistService";
+import { getAnimeDetails } from "../services/animeService";
+
+let cachedWatchlistPromise = null;
+let cachedWatchlistTime = 0;
+
+function getCachedWatchlist() {
+  const now = Date.now();
+  if (!cachedWatchlistPromise || now - cachedWatchlistTime > 5000) {
+    cachedWatchlistTime = now;
+    cachedWatchlistPromise = getAllWatchlist().catch(() => []);
+  }
+  return cachedWatchlistPromise;
+}
 
 export default function AnimeCard({ anime, onDelete }) {
   const [showPopup, setShowPopup] = useState(false);
   const [inWatchlist, setInWatchlist] = useState(false);
-  const hoverTimeoutRef = useRef(null);
+  const [liveStatus, setLiveStatus] = useState(anime?.status || anime?.airing_status || null);
+  const [liveTitle, setLiveTitle] = useState(null);
+  const [allow18Plus, setAllow18Plus] = useState(localStorage.getItem("relist_show_18plus") === "true");
+  
+  const enterTimeoutRef = useRef(null);
+  const leaveTimeoutRef = useRef(null);
   const navigate = useNavigate();
+
+  // Listen for changes to the 18+ setting across the app
+  useEffect(() => {
+    const handleStorageChange = () => {
+      setAllow18Plus(localStorage.getItem("relist_show_18plus") === "true");
+    };
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
+  }, []);
 
   if (!anime) return null;
 
   const animeId = anime.id || anime.anime_id || anime.mal_id;
+
+  // 18+ Detection Logic (Supports both Jikan and AniList metadata)
+  const ratingStr = String(anime.rating || "").toLowerCase();
+  const is18Plus = 
+    anime.isAdult === true || 
+    ratingStr.includes("rx") || 
+    ratingStr.includes("hentai") || 
+    (anime.genres || []).some(g => {
+      const n = String(typeof g === 'string' ? g : g.name).toLowerCase();
+      return n === "hentai" || n === "erotica";
+    });
+
+  // Hide card entirely if it's 18+ and the user has the setting disabled
+  if (is18Plus && !allow18Plus) return null;
+
+  const hasEnglishTitleAlready = Boolean(
+    anime.title_english || (typeof anime.title === "object" && anime.title?.english)
+  );
+  const isWatchlistRowStatus = ["watching", "planned", "plan_to_watch", "completed", "on_hold", "onhold", "dropped"].includes(
+    String(anime.status || "").toLowerCase()
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadMeta() {
+      try {
+        const list = await getCachedWatchlist();
+        if (cancelled) return;
+
+        if (list && Array.isArray(list)) {
+          setInWatchlist(list.some((item) => String(item.anime_id) === String(animeId)));
+        }
+
+        if (!hasEnglishTitleAlready && (isWatchlistRowStatus || !anime.status)) {
+          const details = await getAnimeDetails(animeId).catch(() => null);
+          if (cancelled || !details) return;
+
+          const engTitle =
+            details.title_english ||
+            details.title?.english ||
+            details.title?.romaji;
+          if (engTitle) setLiveTitle(engTitle);
+
+          if (details.status) {
+            setLiveStatus(details.status);
+          }
+        }
+      } catch (e) {}
+    }
+
+    loadMeta();
+    return () => {
+      cancelled = true;
+      if (enterTimeoutRef.current) clearTimeout(enterTimeoutRef.current);
+      if (leaveTimeoutRef.current) clearTimeout(leaveTimeoutRef.current);
+    };
+  }, [animeId, hasEnglishTitleAlready, isWatchlistRowStatus, anime.status]);
+
   const title =
-    (typeof anime.title === "string" ? anime.title : anime.title?.english || anime.title?.romaji) ||
+    liveTitle ||
     anime.title_english ||
+    anime.title?.english ||
+    (typeof anime.title === "string" ? anime.title : anime.title?.romaji) ||
+    anime.title_romaji ||
     "Anime";
 
   const image =
@@ -34,42 +122,44 @@ export default function AnimeCard({ anime, onDelete }) {
 
   const score = anime.averageScore ? (anime.averageScore / 10).toFixed(1) : anime.score || null;
   const format = anime.format || anime.type || "TV";
-  const status = anime.status?.replace(/_/g, " ") || "CURRENTLY AIRING";
   const episodes = anime.episodes || anime.totalEpisodes || null;
 
-  useEffect(() => {
-    let cancelled = false;
-    async function checkSaved() {
-      try {
-        const list = await getAllWatchlist();
-        if (!cancelled && list && Array.isArray(list)) {
-          const exists = list.some((item) => String(item.anime_id) === String(animeId));
-          setInWatchlist(exists);
-        }
-      } catch (e) {}
+  const displayStatus = (() => {
+    const s = String(liveStatus || "").toUpperCase();
+    if (["WATCHING", "PLANNED", "PLAN_TO_WATCH", "COMPLETED", "ON_HOLD", "ONHOLD", "DROPPED"].includes(s)) {
+      return "Finished Airing";
     }
-    checkSaved();
-    return () => {
-      cancelled = true;
-      if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
-    };
-  }, [animeId]);
+    if (s.includes("FINISHED") || s === "COMPLETED") return "Finished Airing";
+    if (s.includes("RELEASING") || s.includes("AIRING")) return "Currently Airing";
+    if (s.includes("NOT_YET") || s.includes("UPCOMING")) return "Not yet aired";
+    if (s.includes("CANCELLED")) return "Cancelled";
+    if (s.includes("HIATUS")) return "On Hiatus";
+    return liveStatus ? liveStatus.replace(/_/g, " ") : "Finished Airing";
+  })();
 
   const handleMouseEnter = () => {
-    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
-    setShowPopup(true);
+    if (leaveTimeoutRef.current) clearTimeout(leaveTimeoutRef.current);
+    if (enterTimeoutRef.current) clearTimeout(enterTimeoutRef.current);
+
+    enterTimeoutRef.current = setTimeout(() => {
+      setShowPopup(true);
+    }, 250);
   };
 
   const handleMouseLeave = () => {
-    hoverTimeoutRef.current = setTimeout(() => {
+    if (enterTimeoutRef.current) clearTimeout(enterTimeoutRef.current);
+    if (leaveTimeoutRef.current) clearTimeout(leaveTimeoutRef.current);
+
+    leaveTimeoutRef.current = setTimeout(() => {
       setShowPopup(false);
-    }, 320);
+    }, 250);
   };
 
   const handleWatchlistToggle = async (e) => {
     e.preventDefault();
     e.stopPropagation();
     try {
+      cachedWatchlistTime = 0;
       if (inWatchlist) {
         await removeFromWatchlist(animeId);
         setInWatchlist(false);
@@ -104,7 +194,6 @@ export default function AnimeCard({ anime, onDelete }) {
         transition: "transform 0.2s ease",
       }}
     >
-      {/* Explicit 'X' Remove Button */}
       {onDelete && (
         <button
           type="button"
@@ -138,7 +227,6 @@ export default function AnimeCard({ anime, onDelete }) {
         </button>
       )}
 
-      {/* Base Card Poster & Navigation */}
       <Link to={`/details/${animeId}`} style={{ textDecoration: "none", display: "block" }}>
         <div
           style={{
@@ -207,6 +295,27 @@ export default function AnimeCard({ anime, onDelete }) {
               ★ {score}
             </span>
           )}
+
+          {/* 18+ Label at Bottom Right */}
+          {is18Plus && (
+            <span
+              style={{
+                position: "absolute",
+                bottom: "8px",
+                right: "8px",
+                background: "#ef4444",
+                color: "#ffffff",
+                fontSize: "11px",
+                fontWeight: 900,
+                padding: "2px 6px",
+                borderRadius: "4px",
+                boxShadow: "0 2px 6px rgba(0,0,0,0.6)",
+                letterSpacing: "0.5px"
+              }}
+            >
+              18+
+            </span>
+          )}
         </div>
 
         <div style={{ padding: "8px 2px 2px" }}>
@@ -232,13 +341,14 @@ export default function AnimeCard({ anime, onDelete }) {
               justifyContent: "space-between",
             }}
           >
-            <span>{episodes ? `${episodes} eps` : "Airing"}</span>
-            <span style={{ textTransform: "capitalize" }}>{format}</span>
+            <span>{episodes ? `${episodes} eps` : format}</span>
+            <span style={{ color: displayStatus === "Finished Airing" ? "var(--text-muted)" : "var(--accent-color, #ff0080)" }}>
+              {displayStatus}
+            </span>
           </div>
         </div>
       </Link>
 
-      {/* Floating Hover Preview Card */}
       {showPopup && (
         <div
           onMouseEnter={handleMouseEnter}
@@ -281,9 +391,14 @@ export default function AnimeCard({ anime, onDelete }) {
                 ★ {score}
               </span>
             )}
-            <span style={{ fontSize: "9px", background: "rgba(255,255,255,0.06)", padding: "2px 6px", borderRadius: "4px", color: "var(--text-muted, #aaa)", fontWeight: 700, textTransform: "uppercase" }}>
-              {status}
+            <span style={{ fontSize: "9px", background: "rgba(255,255,255,0.06)", padding: "2px 6px", borderRadius: "4px", color: "var(--text-muted, #aaa)", fontWeight: 700 }}>
+              {displayStatus}
             </span>
+            {is18Plus && (
+              <span style={{ fontSize: "10px", background: "rgba(239, 68, 68, 0.15)", color: "#ef4444", padding: "2px 6px", borderRadius: "4px", fontWeight: 900 }}>
+                18+
+              </span>
+            )}
           </div>
 
           <p
@@ -298,7 +413,7 @@ export default function AnimeCard({ anime, onDelete }) {
               overflow: "hidden",
             }}
           >
-            {anime.description?.replace(/<[^>]*>/g, "") || "Click card to view full synopsis and episodes."}
+            {(anime.description || anime.synopsis || "")?.replace(/<[^>]*>/g, "") || "Click card to view full synopsis and episodes."}
           </p>
 
           <div style={{ display: "flex", gap: "8px" }}>
@@ -319,7 +434,6 @@ export default function AnimeCard({ anime, onDelete }) {
                 alignItems: "center",
                 justifyContent: "center",
                 gap: "5px",
-                boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
               }}
             >
               <span>▶</span> Watch
@@ -332,7 +446,7 @@ export default function AnimeCard({ anime, onDelete }) {
               style={{
                 width: "36px",
                 padding: "8px 0",
-                border: "1px solid var(--border-color, rgba(255,255,255,0.15))",
+                border: "1px solid var(--border-color, rgba(255, 255, 255, 0.15))",
                 borderRadius: "8px",
                 background: inWatchlist ? "rgba(16, 185, 129, 0.2)" : "rgba(255,255,255,0.06)",
                 color: inWatchlist ? "#10b981" : "var(--text-primary, #ffffff)",

@@ -12,7 +12,8 @@ import { syncEpisodeToAniList } from "../services/anilistService";
 import { syncEpisodeToMAL, isMALAutoSyncPaused } from "../services/malService";
 import { startEpisodeDownload, getDownloadsList } from "../services/downloadService";
 
-const EMBED_SOURCES = [
+// Standard streaming sources for TV/PG-13/R-17 anime
+const STANDARD_SOURCES = [
   {
     name: "MegaPlay",
     build: (id, ep, lang) => `https://megaplay.buzz/stream/mal/${id}/${ep}/${lang}`,
@@ -40,10 +41,16 @@ export default function Player() {
 
   const [anime, setAnime] = useState(() => peekAnimeDetails(id));
   const [loading, setLoading] = useState(!anime);
+  
+  // Track iframe connection status and adult content flag
+  const [iframeLoading, setIframeLoading] = useState(true);
+  const [isAdult, setIsAdult] = useState(false);
+
   const [currentSource, setCurrentSource] = useState(() => {
     const val = parseInt(localStorage.getItem("playerSource") || "0", 10);
-    return isNaN(val) ? 0 : val % EMBED_SOURCES.length;
+    return isNaN(val) ? 0 : val;
   });
+  
   const [language, setLanguage] = useState(() => localStorage.getItem("globalLanguage") || "sub");
   const [isTheaterMode, setIsTheaterMode] = useState(() => localStorage.getItem("playerTheater") === "1");
   const [watched, setWatched] = useState(() => {
@@ -77,7 +84,26 @@ export default function Player() {
     let cancelled = false;
     getAnimeDetails(id)
       .then((data) => {
-        if (!cancelled && data) setAnime(data);
+        if (!cancelled && data) {
+          setAnime(data);
+          
+          // 18+ Detection Logic
+          const ratingStr = String(data.rating || "").toLowerCase();
+          const adultFlag = 
+            data.isAdult === true || 
+            ratingStr.includes("rx") || 
+            ratingStr.includes("hentai") ||
+            (data.genres || []).some(g => {
+              const n = String(typeof g === 'string' ? g : g.name).toLowerCase();
+              return n === "hentai" || n === "erotica";
+            });
+          
+          setIsAdult(adultFlag);
+          
+          if (!adultFlag && currentSource >= STANDARD_SOURCES.length) {
+            setCurrentSource(0);
+          }
+        }
       })
       .catch((err) => console.error("Could not load anime details:", err))
       .finally(() => {
@@ -105,7 +131,7 @@ export default function Player() {
       cancelled = true;
       clearInterval(dlTimer);
     };
-  }, [id]);
+  }, [id, currentSource]);
 
   const rawCount = getEpisodeCount(anime);
   const knownCount = rawCount || anime?.episodes || null;
@@ -182,7 +208,9 @@ export default function Player() {
 
   const selectSource = (idx) => {
     setCurrentSource(idx);
-    localStorage.setItem("playerSource", String(idx));
+    if (!isAdult) {
+      localStorage.setItem("playerSource", String(idx));
+    }
   };
 
   const toggleLanguage = () => {
@@ -223,13 +251,24 @@ export default function Player() {
     }
   };
 
+  const safeSourceIndex = currentSource % STANDARD_SOURCES.length;
+  const source = STANDARD_SOURCES[safeSourceIndex];
+  
+  const embedUrl = useMemo(
+    () => source.build(id, currentEp, language),
+    [source, id, currentEp, language]
+  );
+
+  useEffect(() => {
+    setIframeLoading(true);
+  }, [embedUrl]);
+
   const handleDownloadThisEpisode = async () => {
     if (!anime) return;
     setDownloading(true);
     try {
-      const streamUrl = EMBED_SOURCES[currentSource].build(id, currentEp, language);
       const img = anime.images?.jpg?.large_image_url || anime.image || "";
-      await startEpisodeDownload(id, primaryTitle, currentEp, img, streamUrl);
+      await startEpisodeDownload(id, primaryTitle, currentEp, img, embedUrl);
       triggerToast(`Download started for Episode ${currentEp}!`);
     } catch (err) {
       console.error("Download failed:", err);
@@ -239,11 +278,12 @@ export default function Player() {
     }
   };
 
-  const source = EMBED_SOURCES[currentSource] || EMBED_SOURCES[0];
-  const embedUrl = useMemo(
-    () => source.build(id, currentEp, language),
-    [source, id, currentEp, language]
-  );
+  const handleExternalSearch = () => {
+    const query = encodeURIComponent(`${primaryTitle} episode ${currentEp}`);
+    window.electronAPI?.openExternal
+      ? window.electronAPI.openExternal(`https://duckduckgo.com/?q=${query}+watch+online`)
+      : window.open(`https://duckduckgo.com/?q=${query}+watch+online`, "_blank");
+  };
 
   const hasPrev = currentEp > 1;
   const hasNext = currentEp < totalEpisodes;
@@ -296,6 +336,11 @@ export default function Player() {
           <span style={{ color: "var(--accent-color, #ff0080)", fontWeight: 700, fontSize: "14px" }}>
             · Episode {currentEp}
           </span>
+          {isAdult && (
+            <span style={{ background: "#ef4444", color: "#ffffff", padding: "1px 6px", borderRadius: "4px", fontSize: "10px", fontWeight: 900, marginLeft: "4px" }}>
+              18+
+            </span>
+          )}
         </div>
       </div>
 
@@ -309,7 +354,7 @@ export default function Player() {
           alignItems: "flex-start",
         }}
       >
-        {/* LEFT: Episodes Box — Stays on Left, Collapses completely in Theater Mode */}
+        {/* LEFT: Episodes Box */}
         {!isTheaterMode && (
           <aside
             style={{
@@ -436,7 +481,6 @@ export default function Player() {
 
         {/* RIGHT: Video Player Frame & Controls Below */}
         <main style={{ flex: 1, minWidth: 0, width: "100%" }}>
-          {/* Iframe Frame */}
           <div
             style={{
               position: "relative",
@@ -454,18 +498,56 @@ export default function Player() {
               <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}>
                 Loading stream…
               </div>
+            ) : isAdult ? (
+              <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", padding: "20px", textAlign: "center" }}>
+                <span style={{ fontSize: "42px", marginBottom: "16px" }}>🔞</span>
+                <h3 style={{ margin: "0 0 10px", color: "var(--text-primary)", fontSize: "20px" }}>18+ Content Warning</h3>
+                <p style={{ maxWidth: "400px", lineHeight: 1.5, marginBottom: "20px" }}>
+                  Standard streaming servers do not host adult content. You can search the web for external streams of this episode.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleExternalSearch}
+                  style={{
+                    padding: "10px 20px",
+                    background: "#ef4444",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "8px",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    boxShadow: "0 4px 14px rgba(239, 68, 68, 0.3)"
+                  }}
+                >
+                  Search External Sources ↗
+                </button>
+              </div>
             ) : (
-              <iframe
-                ref={iframeRef}
-                key={`${currentSource}-${language}-${currentEp}`}
-                title={`Episode ${currentEp}`}
-                src={embedUrl}
-                width="100%"
-                height="100%"
-                style={{ border: 0 }}
-                allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
-                allowFullScreen
-              />
+              <>
+                {iframeLoading && (
+                  <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "var(--accent-color, #ff0080)", zIndex: 10 }}>
+                    <div style={{ width: "40px", height: "40px", border: "3px solid rgba(255,255,255,0.1)", borderTopColor: "var(--accent-color, #ff0080)", borderRadius: "50%", animation: "spin 1s linear infinite", marginBottom: "16px" }} />
+                    <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+                    <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-primary)" }}>Connecting to server...</div>
+                  </div>
+                )}
+                <iframe
+                  ref={iframeRef}
+                  key={`${safeSourceIndex}-${language}-${currentEp}`}
+                  title={`Episode ${currentEp}`}
+                  src={embedUrl}
+                  width="100%"
+                  height="100%"
+                  style={{ 
+                    border: 0, 
+                    opacity: iframeLoading ? 0 : 1, 
+                    transition: "opacity 0.3s ease" 
+                  }}
+                  allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+                  allowFullScreen
+                  onLoad={() => setIframeLoading(false)}
+                />
+              </>
             )}
           </div>
 
@@ -621,8 +703,8 @@ export default function Player() {
               </div>
 
               <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-                {EMBED_SOURCES.map((src, i) => {
-                  const active = i === currentSource;
+                {!isAdult ? STANDARD_SOURCES.map((src, i) => {
+                  const active = i === safeSourceIndex;
                   return (
                     <button
                       key={src.name}
@@ -645,32 +727,38 @@ export default function Player() {
                       <span>▶</span> {src.name}
                     </button>
                   );
-                })}
+                }) : (
+                  <span style={{ fontSize: "12.5px", color: "#ef4444", fontWeight: 700 }}>
+                    Standard servers unavailable for 18+ content.
+                  </span>
+                )}
               </div>
             </div>
 
             {/* Download Episode Button */}
-            <button
-              type="button"
-              onClick={handleDownloadThisEpisode}
-              disabled={downloading}
-              style={{
-                padding: "11px 18px",
-                borderRadius: "10px",
-                border: "none",
-                background: "var(--accent-gradient, #ff0080)",
-                color: "#fff",
-                fontWeight: 800,
-                fontSize: "13px",
-                cursor: downloading ? "wait" : "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                boxShadow: "0 4px 14px rgba(255,0,128,0.3)",
-              }}
-            >
-              <span>📥</span> {downloading ? "Queuing..." : "Download Episode"}
-            </button>
+            {!isAdult && (
+              <button
+                type="button"
+                onClick={handleDownloadThisEpisode}
+                disabled={downloading}
+                style={{
+                  padding: "11px 18px",
+                  borderRadius: "10px",
+                  border: "none",
+                  background: "var(--accent-gradient, #ff0080)",
+                  color: "#fff",
+                  fontWeight: 800,
+                  fontSize: "13px",
+                  cursor: downloading ? "wait" : "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  boxShadow: "0 4px 14px rgba(255,0,128,0.3)",
+                }}
+              >
+                <span>📥</span> {downloading ? "Queuing..." : "Download Episode"}
+              </button>
+            )}
           </div>
 
           {/* Estimated Next Episode Release Box */}

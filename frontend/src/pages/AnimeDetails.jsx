@@ -10,6 +10,119 @@ import {
 import { getHistory, getLatestEpisode } from "../services/historyService";
 import { startEpisodeDownload } from "../services/downloadService";
 
+// Direct fallback fetcher (AniList by idMal -> Jikan retry) so details never fail on 429 rate limits
+async function fetchReliableAnimeDetails(malId) {
+  // 1. Try existing service first
+  try {
+    const primary = await getAnimeDetails(malId);
+    if (primary && (primary.mal_id || primary.id || primary.title)) {
+      return { details: primary, fallbackRelations: null };
+    }
+  } catch (e) {
+    console.warn("Primary getAnimeDetails failed, trying fallbacks:", e);
+  }
+
+  // 2. Fast AniList fallback by idMal (fetches details + genres + tags + relations in 1 call)
+  try {
+    const query = `
+      query ($idMal: Int) {
+        Media(idMal: $idMal, type: ANIME) {
+          id
+          idMal
+          title { romaji english native }
+          coverImage { extraLarge large }
+          bannerImage
+          format
+          episodes
+          status
+          averageScore
+          description
+          genres
+          tags { name rank isMediaSpoiler }
+          relations {
+            edges {
+              relationType(version: 2)
+              node {
+                id
+                idMal
+                type
+                title { english romaji }
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    const res = await fetch("https://graphql.anilist.co", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query,
+        variables: { idMal: Number(malId) },
+      }),
+    });
+
+    if (res.ok) {
+      const json = await res.json();
+      const m = json?.data?.Media;
+      if (m) {
+        const topTags = (m.tags || [])
+          .filter((t) => !t.isMediaSpoiler && (t.rank || 0) >= 60)
+          .slice(0, 6)
+          .map((t) => ({ name: t.name }));
+
+        const details = {
+          mal_id: m.idMal || Number(malId),
+          id: m.idMal || m.id,
+          title: m.title?.romaji || m.title?.english || "Anime",
+          title_english: m.title?.english || null,
+          title_japanese: m.title?.native || null,
+          images: {
+            jpg: {
+              large_image_url: m.coverImage?.extraLarge || m.coverImage?.large || "",
+              image_url: m.coverImage?.large || "",
+            },
+          },
+          bannerImage: m.bannerImage || null,
+          type: m.format || "TV",
+          format: m.format || "TV",
+          episodes: m.episodes || null,
+          status: m.status || "FINISHED",
+          score: m.averageScore ? (m.averageScore / 10).toFixed(1) : null,
+          synopsis: m.description?.replace(/<[^>]*>/g, "") || "No synopsis available.",
+          genres: (m.genres || []).map((g) => ({ name: g })),
+          themes: topTags,
+        };
+
+        const fallbackRelations = (m.relations?.edges || [])
+          .filter((edge) => edge?.node?.idMal && edge?.node?.type === "ANIME")
+          .map((edge) => ({
+            mal_id: edge.node.idMal,
+            relation: (edge.relationType || "RELATED").replace(/_/g, " "),
+            name: edge.node.title?.english || edge.node.title?.romaji || "Related Anime",
+          }));
+
+        return { details, fallbackRelations };
+      }
+    }
+  } catch (err) {
+    console.warn("AniList fallback error:", err);
+  }
+
+  // 3. Final direct Jikan retry after a short pause
+  await new Promise((r) => setTimeout(r, 850));
+  const jikanRes = await fetch(`https://api.jikan.moe/v4/anime/${malId}/full`);
+  if (jikanRes.ok) {
+    const jikanJson = await jikanRes.json();
+    if (jikanJson?.data) {
+      return { details: jikanJson.data, fallbackRelations: null };
+    }
+  }
+
+  return { details: null, fallbackRelations: null };
+}
+
 export default function AnimeDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -49,9 +162,9 @@ export default function AnimeDetails() {
       window.scrollTo(0, 0);
 
       try {
-        const [details, related, watchlist, history, latestEp] = await Promise.all([
-          getAnimeDetails(id),
-          getAnimeRelations(id).catch(() => []),
+        // Load local DB data + reliable anime details first (avoids firing two Jikan calls simultaneously)
+        const [{ details, fallbackRelations }, watchlist, history, latestEp] = await Promise.all([
+          fetchReliableAnimeDetails(id),
           getAllWatchlist().catch(() => []),
           getHistory().catch(() => []),
           getLatestEpisode(id).catch(() => null),
@@ -64,7 +177,6 @@ export default function AnimeDetails() {
         }
 
         setAnime(details);
-        setRelatedAnime(related || []);
 
         if (latestEp) {
           setLastWatchedEp(Number(latestEp));
@@ -85,6 +197,17 @@ export default function AnimeDetails() {
             .filter((h) => String(h.anime_id) === String(id))
             .map((h) => Number(h.episode));
           setWatchedEpisodes(watched);
+        }
+
+        // Load relations non-blockingly so the page renders immediately
+        if (fallbackRelations && fallbackRelations.length > 0) {
+          setRelatedAnime(fallbackRelations);
+        } else {
+          getAnimeRelations(id)
+            .then((rel) => {
+              if (!cancelled && Array.isArray(rel)) setRelatedAnime(rel);
+            })
+            .catch(() => {});
         }
       } catch (err) {
         console.error("Failed to load anime details:", err);
@@ -123,6 +246,7 @@ export default function AnimeDetails() {
   const romajiTitle = (typeof anime.title === "string" ? anime.title : anime.title?.romaji) || "Anime";
   const englishTitle = anime.title_english || anime.title?.english || null;
   const nativeTitle = anime.title_japanese || anime.title?.native || null;
+  const primaryTitle = englishTitle || romajiTitle;
 
   const poster =
     anime.images?.jpg?.large_image_url ||
@@ -136,8 +260,20 @@ export default function AnimeDetails() {
   const score = anime.score || (anime.averageScore ? (anime.averageScore / 10).toFixed(1) : null);
   const status = anime.status?.replace(/_/g, " ") || "AIRING";
   const type = anime.type || anime.format || "TV";
-  const genres = anime.genres?.map((g) => (typeof g === "string" ? g : g.name)) || [];
-  const synopsis = anime.synopsis || anime.description || "No synopsis available.";
+
+  const genres = Array.from(
+    new Set(
+      [
+        ...(anime.genres || []),
+        ...(anime.themes || []),
+        ...(anime.demographics || []),
+      ]
+        .map((g) => (typeof g === "string" ? g : g?.name))
+        .filter(Boolean)
+    )
+  );
+
+  const synopsis = (anime.synopsis || anime.description || "No synopsis available.").replace(/<[^>]*>/g, "");
 
   const allEpNumbers = Array.from({ length: totalEps }, (_, i) => i + 1);
   const filteredEpisodes = episodeSearch.trim()
@@ -156,7 +292,7 @@ export default function AnimeDetails() {
       } else {
         await addToWatchlist({
           anime_id: id,
-          title: romajiTitle,
+          title: primaryTitle,
           image: poster,
           status: watchlistStatus,
         });
@@ -176,7 +312,7 @@ export default function AnimeDetails() {
       try {
         await addToWatchlist({
           anime_id: id,
-          title: romajiTitle,
+          title: primaryTitle,
           image: poster,
           status: newStatus,
         });
@@ -191,7 +327,7 @@ export default function AnimeDetails() {
     triggerToast(`Queuing ${Math.min(totalEps, 24)} episodes for download. Check Downloads tab!`);
     for (let i = 1; i <= Math.min(totalEps, 24); i++) {
       const streamUrl = `https://megaplay.buzz/stream/mal/${id}/${i}/sub`;
-      await startEpisodeDownload(id, romajiTitle, i, poster, streamUrl).catch(() => {});
+      await startEpisodeDownload(id, primaryTitle, i, poster, streamUrl).catch(() => {});
     }
   };
 
@@ -223,7 +359,7 @@ export default function AnimeDetails() {
         {banner && (
           <img
             src={banner}
-            alt={romajiTitle}
+            alt={primaryTitle}
             style={{ width: "100%", height: "100%", objectFit: "cover", opacity: 0.35, filter: "blur(3px)" }}
           />
         )}
@@ -237,7 +373,7 @@ export default function AnimeDetails() {
           <div style={{ width: "240px", flexShrink: 0 }}>
             <img
               src={poster}
-              alt={romajiTitle}
+              alt={primaryTitle}
               style={{
                 width: "100%",
                 borderRadius: "14px",
@@ -346,15 +482,15 @@ export default function AnimeDetails() {
           {/* Right Column: Titles & Metadata */}
           <div style={{ flex: 1, minWidth: "300px" }}>
             <h1 style={{ margin: "0 0 6px", fontSize: "2.1rem", fontWeight: 800, color: "var(--text-primary)" }}>
-              {romajiTitle}
+              {primaryTitle}
             </h1>
 
-            {/* Alternate English & Japanese Titles */}
+            {/* Alternate Romaji & Japanese Titles */}
             <div style={{ marginBottom: "14px", display: "flex", flexDirection: "column", gap: "2px" }}>
-              {englishTitle && englishTitle !== romajiTitle && (
-                <div style={{ fontSize: "1.1rem", color: "var(--accent-color, #ff0080)", fontWeight: 600 }}>
-                  <span style={{ color: "var(--text-muted)", fontSize: "0.85rem", textTransform: "uppercase", marginRight: "6px" }}>English:</span>
-                  {englishTitle}
+              {romajiTitle && romajiTitle !== primaryTitle && (
+                <div style={{ fontSize: "1.05rem", color: "var(--accent-color, #ff0080)", fontWeight: 600 }}>
+                  <span style={{ color: "var(--text-muted)", fontSize: "0.82rem", textTransform: "uppercase", marginRight: "6px" }}>Romaji:</span>
+                  {romajiTitle}
                 </div>
               )}
               {nativeTitle && (
@@ -385,24 +521,38 @@ export default function AnimeDetails() {
               </span>
             </div>
 
-            <div style={{ display: "flex", gap: "6px", marginBottom: "20px", flexWrap: "wrap" }}>
-              {genres.map((g, idx) => (
-                <span
-                  key={idx}
-                  style={{
-                    fontSize: "11px",
-                    fontWeight: 600,
-                    padding: "3px 10px",
-                    borderRadius: "20px",
-                    background: "rgba(255, 255, 255, 0.06)",
-                    color: "var(--text-primary)",
-                    border: "1px solid var(--border-color)",
-                  }}
-                >
-                  {g}
-                </span>
-              ))}
-            </div>
+            {/* Clickable Genre / Theme / Demographic Badges Section */}
+            {genres && genres.length > 0 && (
+              <div style={{ display: "flex", gap: "6px", marginBottom: "20px", flexWrap: "wrap" }}>
+                {genres.map((g, idx) => (
+                  <Link
+                    key={idx}
+                    to={`/genre/${encodeURIComponent(g)}`}
+                    style={{
+                      textDecoration: "none",
+                      fontSize: "11px",
+                      fontWeight: 600,
+                      padding: "4px 12px",
+                      borderRadius: "20px",
+                      background: "rgba(255, 255, 255, 0.06)",
+                      color: "var(--text-primary)",
+                      border: "1px solid var(--border-color)",
+                      transition: "all 0.2s ease",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = "var(--accent-color, #ff0080)";
+                      e.currentTarget.style.color = "var(--accent-color, #ff0080)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = "var(--border-color)";
+                      e.currentTarget.style.color = "var(--text-primary)";
+                    }}
+                  >
+                    {g}
+                  </Link>
+                ))}
+              </div>
+            )}
 
             <div style={{ marginBottom: "28px", maxWidth: "880px" }}>
               <p
