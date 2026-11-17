@@ -24,16 +24,16 @@ function formatCountdown(seconds) {
 function Schedule() {
   const [selectedDay, setSelectedDay] = useState(0);
   const [scheduleList, setScheduleList] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loadedDay, setLoadedDay] = useState(null);
+  const loading = loadedDay !== selectedDay;
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
 
     getAiringSchedule(selectedDay).then((data) => {
       if (!cancelled) {
         setScheduleList(data);
-        setLoading(false);
+        setLoadedDay(selectedDay);
       }
     });
 

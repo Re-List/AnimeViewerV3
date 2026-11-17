@@ -1,7 +1,8 @@
 // frontend/src/services/downloadService.js
 import axios from "axios";
+import { API_BASE as SERVER_BASE } from "../config";
 
-const API_BASE = "http://localhost:5000/downloads";
+const API_BASE = `${SERVER_BASE}/downloads`;
 
 /**
  * Fetch all local downloads from the backend database
@@ -38,7 +39,7 @@ export async function startEpisodeDownload(anime_id, title, episode, image, stre
     return res.data;
   } catch (err) {
     console.error("Failed to start download:", err);
-    throw new Error(err.response?.data?.error || "Failed to start download");
+    throw new Error(err.response?.data?.error || "Failed to start download", { cause: err });
   }
 }
 
@@ -47,6 +48,8 @@ export async function startEpisodeDownload(anime_id, title, episode, image, stre
  * @param {number|string} id - Database download record ID
  * @returns {Promise<boolean>}
  */
+// The backend resolves embed pages and HLS playlists itself; a rejected start
+// now carries a readable reason instead of silently "completing".
 export async function deleteDownload(id) {
   try {
     const res = await axios.delete(`${API_BASE}/${id}`);
@@ -79,17 +82,71 @@ export async function checkEpisodeDownloaded(anime_id, episode) {
 }
 
 /**
- * Format bytes into readable MB or GB string
- * @param {number} bytes 
+ * Opens a downloaded file in the system's default video player. Used for
+ * MPEG-TS files (what HLS downloads become), which <video> cannot play.
+ * @param {number|string} id - Database download record ID
+ * @returns {Promise<boolean>}
+ */
+export async function openDownloadFile(id) {
+  try {
+    const res = await axios.post(`${API_BASE}/open/${id}`);
+    return res.data?.success || false;
+  } catch (err) {
+    console.error("Failed to open download:", err);
+    throw new Error(err.response?.data?.error || "Could not open the file", { cause: err });
+  }
+}
+
+/**
+ * Format bytes into readable KB / MB / GB string
+ * @param {number} bytes
  * @returns {string} e.g. "245.5 MB"
  */
 export function formatFileSize(bytes) {
-  if (!bytes || bytes === 0) return "0 MB";
-  const mb = bytes / (1024 * 1024);
+  if (!bytes || bytes <= 0) return "0 KB";
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb < 10 ? kb.toFixed(1) : Math.round(kb)} KB`;
+  const mb = kb / 1024;
   if (mb >= 1024) {
     return `${(mb / 1024).toFixed(2)} GB`;
   }
   return `${mb.toFixed(1)} MB`;
+}
+
+/**
+ * Human readable state for an in-flight download. A download spends its first
+ * seconds resolving the embed page to a real video URL, and some hosts send no
+ * Content-Length, so a plain percentage would sit at 0% and look frozen.
+ * @param {Object} item - download row merged with live progress
+ * @returns {string}
+ */
+export function describeDownloadProgress(item) {
+  if (!item) return "";
+  if (item.stage === "resolving") return "Contacting server…";
+  if (item.stage === "saving") return "Finishing download…";
+
+  if (item.progressKnown === false) {
+    return item.received > 0
+      ? `Downloading — ${formatFileSize(item.received)}`
+      : "Starting download…";
+  }
+
+  const percent = item.progress || 0;
+  return item.received > 0
+    ? `Downloading ${percent}% · ${formatFileSize(item.received)}`
+    : `Downloading ${percent}%`;
+}
+
+/**
+ * True while there is no meaningful percentage to display.
+ * @param {Object} item
+ * @returns {boolean}
+ */
+export function isIndeterminateDownload(item) {
+  if (!item) return false;
+  return (
+    item.stage === "resolving" || item.stage === "saving" || item.progressKnown === false
+  );
 }
 
 export default {
@@ -97,5 +154,8 @@ export default {
   startEpisodeDownload,
   deleteDownload,
   checkEpisodeDownloaded,
+  openDownloadFile,
   formatFileSize,
+  describeDownloadProgress,
+  isIndeterminateDownload,
 };

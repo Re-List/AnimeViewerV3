@@ -1,6 +1,5 @@
 // frontend/src/pages/Settings.jsx
-import { useState, useEffect } from "react";
-import axios from "axios";
+import { useState, useEffect, useSyncExternalStore } from "react";
 import { getHistory, removeHistoryItem } from "../services/historyService";
 import {
   getWatchlistByStatus,
@@ -10,22 +9,31 @@ import {
 } from "../services/watchlistService";
 import { THEMES, applyTheme, applyCustomTheme, getCurrentTheme } from "../services/themeService";
 import {
-  getAniListToken,
   saveAniListToken,
   removeAniListToken,
   getAniListUser,
   fetchViewerProfile,
 } from "../services/anilistService";
 import {
-  getMALToken,
-  saveMALToken,
-  removeMALToken,
+  cacheMALUser,
+  clearMALAuthFailure,
+  disconnectMAL,
+  getMALAuthSnapshot,
+  getMALAuthVersion,
+  getMALStatus,
   getMALUser,
   isMALAutoSyncPaused,
+  isMALReconnectNeeded,
+  markMALReconnectNeeded,
+  purgeLegacyMALToken,
+  readLegacyMALToken,
   setMALAutoSyncPaused,
+  subscribeMALAuth,
+  syncMALWatchlist,
 } from "../services/malService";
-
-const SOURCES = ["MegaPlay", "Megavid", "Anixo", "VidHawk"];
+import { setAdultAllowed } from "../services/adultFilter";
+import { API_BASE } from "../config";
+import { PLAYER_SOURCE_NAMES as SOURCES } from "../services/playerSources";
 
 function Settings() {
   const [currentThemeId, setCurrentThemeId] = useState(() => {
@@ -42,14 +50,18 @@ function Settings() {
   const [customIsDark, setCustomIsDark] = useState(true);
 
   // AniList State
-  const [anilistToken, setAnilistToken] = useState(() => getAniListToken() || "");
   const [anilistUser, setAnilistUser] = useState(() => getAniListUser());
   const [tokenInput, setTokenInput] = useState("");
   const [connectingAniList, setConnectingAniList] = useState(false);
 
-  // MyAnimeList (MAL) State
-  const [malToken, setMalToken] = useState(() => getMALToken());
+  // MyAnimeList (MAL) State. The token itself lives in the backend database.
+  const [malConnected, setMalConnected] = useState(false);
   const [malUser, setMalUser] = useState(() => getMALUser());
+  // Accounts that still had their token in the browser must sign in again.
+  const [needsReconnect, setNeedsReconnect] = useState(() => isMALReconnectNeeded());
+
+  useSyncExternalStore(subscribeMALAuth, getMALAuthVersion);
+  const malAuthFailure = getMALAuthSnapshot();
   const [authorizingMAL, setAuthorizingMAL] = useState(false);
   const [syncingMALList, setSyncingMALList] = useState(false);
   const [malSyncPaused, setMalSyncPaused] = useState(() => {
@@ -121,7 +133,6 @@ function Settings() {
       const user = await fetchViewerProfile(tokenInput.trim());
       if (user) {
         saveAniListToken(tokenInput.trim());
-        setAnilistToken(tokenInput.trim());
         setAnilistUser(user);
         setTokenInput("");
         triggerToast(`Connected to AniList as ${user.name}!`);
@@ -137,7 +148,6 @@ function Settings() {
 
   const handleDisconnectAniList = () => {
     removeAniListToken();
-    setAnilistToken("");
     setAnilistUser(null);
     triggerToast("AniList account disconnected.");
   };
@@ -151,17 +161,21 @@ function Settings() {
 
   const handleDisconnectMAL = async () => {
     try {
-      await axios.post("http://localhost:5000/auth/mal/disconnect");
-    } catch {}
-    removeMALToken();
-    setMalToken(null);
+      await disconnectMAL();
+    } catch (error) {
+      console.warn("MAL disconnect failed:", error?.message || error);
+    }
+    setMalConnected(false);
+    setNeedsReconnect(false);
+    markMALReconnectNeeded(false);
+    clearMALAuthFailure();
     setMalUser(null);
+    cacheMALUser(null);
     triggerToast("MyAnimeList account disconnected.");
   };
 
   const handleSyncMALWatchlist = async () => {
-    const t = malToken || getMALToken();
-    if (!t) {
+    if (!malConnected && !malUser) {
       triggerToast("Please connect to MyAnimeList first.");
       return;
     }
@@ -169,12 +183,13 @@ function Settings() {
     triggerToast("Pulling watchlist from MyAnimeList…");
 
     try {
-      const res = await axios.post("http://localhost:5000/auth/mal/sync-watchlist", { token: t });
-      if (res.data?.success) {
-        triggerToast(`🎉 Synced ${res.data.count} anime from MyAnimeList into Re:List!`);
+      const res = await syncMALWatchlist();
+      if (res?.success) {
+        triggerToast(`🎉 Synced ${res.count} anime from MyAnimeList into Re:List!`);
         setTimeout(() => window.location.reload(), 1500);
       }
-    } catch {
+    } catch (error) {
+      console.warn("MAL watchlist sync failed:", error?.message || error);
       triggerToast("Failed to pull watchlist from MAL.");
     } finally {
       setSyncingMALList(false);
@@ -183,7 +198,7 @@ function Settings() {
 
   const handleStartMALLogin = () => {
     setAuthorizingMAL(true);
-    const loginUrl = "http://localhost:5000/auth/mal/login";
+    const loginUrl = `${API_BASE}/auth/mal/login`;
 
     if (window.electronAPI?.openExternal) {
       window.electronAPI.openExternal(loginUrl);
@@ -201,21 +216,50 @@ function Settings() {
         setAuthorizingMAL(false);
       }
       try {
-        const res = await axios.get("http://localhost:5000/auth/mal/status");
-        if (res.data?.token) {
+        const status = await getMALStatus();
+        if (status.connected) {
           clearInterval(interval);
-          setMalToken(res.data.token);
-          setMalUser(res.data.user);
-          saveMALToken(res.data.token);
-          if (res.data.user) {
-            localStorage.setItem("relist_mal_user", JSON.stringify(res.data.user));
-          }
+          setMalConnected(true);
+          setNeedsReconnect(false);
+          markMALReconnectNeeded(false);
+          clearMALAuthFailure();
+          setMalUser(status.user);
+          cacheMALUser(status.user);
           setAuthorizingMAL(false);
-          triggerToast(`🎉 Connected as ${res.data.user?.name || "MAL User"}!`);
+          triggerToast(`🎉 Connected as ${status.user?.name || "MAL User"}!`);
         }
-      } catch {}
+      } catch (error) {
+        console.warn("MAL status poll failed:", error?.message || error);
+      }
     }, 2000);
   };
+
+  // Pick up an already-connected MAL account. A browser-side token without a
+  // backend session means the user must reconnect (Settings shows a banner).
+  useEffect(() => {
+    const legacyToken = readLegacyMALToken();
+    purgeLegacyMALToken();
+    let cancelled = false;
+
+    getMALStatus().then((status) => {
+      if (cancelled) return;
+      setMalConnected(status.connected);
+
+      const reconnect = !status.connected && (Boolean(legacyToken) || isMALReconnectNeeded());
+      setNeedsReconnect(reconnect);
+      markMALReconnectNeeded(reconnect);
+
+      if (status.user) {
+        setMalUser(status.user);
+        cacheMALUser(status.user);
+      }
+      if (status.connected) clearMALAuthFailure();
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     async function loadStatsData() {
@@ -277,8 +321,8 @@ function Settings() {
   
   const handleToggle18Plus = (on) => {
     setShow18Plus(on);
-    localStorage.setItem("relist_show_18plus", on ? "true" : "false");
-    window.dispatchEvent(new Event("storage"));
+    // Shared store: every mounted card, grid and player reacts immediately.
+    setAdultAllowed(on);
     triggerToast(on ? "18+ content enabled" : "18+ content hidden");
   };
 
@@ -647,7 +691,7 @@ function Settings() {
         <div style={card}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
             <h2 style={{ ...title, margin: 0 }}>⭐ MyAnimeList Sync</h2>
-            {(malUser || malToken) && (
+            {(malUser || malConnected) && (
               <span style={{ fontSize: "11px", color: malSyncPaused ? "#f59e0b" : "#10b981", fontWeight: 700 }}>
                 {malSyncPaused ? "⏸ Auto-Sync Paused" : "● Auto-Sync Active"}
               </span>
@@ -657,8 +701,52 @@ function Settings() {
             Auto-sync your watch progress and pull your full MAL watchlist into Re:List.
           </p>
 
+          {!malConnected && (needsReconnect || malAuthFailure) && (
+            <div
+              style={{
+                background: "rgba(245, 158, 11, 0.12)",
+                border: "1px solid rgba(245, 158, 11, 0.45)",
+                borderRadius: "10px",
+                padding: "12px 14px",
+                marginBottom: "12px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "8px",
+              }}
+            >
+              <div style={{ fontSize: "12.5px", fontWeight: 700, color: "#f59e0b" }}>
+                {malAuthFailure
+                  ? "MyAnimeList session expired"
+                  : "Reconnect to keep auto-sync working"}
+              </div>
+              <div style={{ fontSize: "11.5px", color: "var(--text-muted)", lineHeight: 1.5 }}>
+                {malAuthFailure
+                  ? "MAL rejected the last sync, so progress syncing is paused and no further requests are sent."
+                  : "Your MAL login used to be stored in the app. It now lives on the backend, so sign in once more — your watchlist and history are untouched."}
+              </div>
+              <button
+                type="button"
+                onClick={handleStartMALLogin}
+                disabled={authorizingMAL}
+                style={{
+                  alignSelf: "flex-start",
+                  padding: "7px 14px",
+                  background: "var(--accent-strong, var(--accent-color, #ff0080))",
+                  color: "var(--on-accent, #ffffff)",
+                  border: "none",
+                  borderRadius: "8px",
+                  fontSize: "11.5px",
+                  fontWeight: 700,
+                  cursor: authorizingMAL ? "wait" : "pointer",
+                }}
+              >
+                {authorizingMAL ? "Waiting for MAL…" : "Reconnect now"}
+              </button>
+            </div>
+          )}
+
           <div style={{ marginTop: "auto" }}>
-            {(malUser || malToken) ? (
+            {(malUser || malConnected) ? (
               <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", background: "var(--bg-primary)", padding: "10px 14px", borderRadius: "10px", border: "1px solid var(--border-color)" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>

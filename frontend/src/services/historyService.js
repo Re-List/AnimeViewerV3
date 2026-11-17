@@ -37,6 +37,11 @@ export async function removeHistoryItem(animeId) {
   await axios.delete(`${API}/${animeId}`);
 }
 
+// Clears the whole history in one request
+export async function clearHistory() {
+  await axios.delete(API);
+}
+
 // Hides a show from Continue Watching
 export async function hideFromContinueWatching(animeId) {
   await axios.post(`${API}/hide/${animeId}`);

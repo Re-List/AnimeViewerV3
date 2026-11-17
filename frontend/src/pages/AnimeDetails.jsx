@@ -1,5 +1,5 @@
 // frontend/src/pages/AnimeDetails.jsx
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { getAnimeDetails, getAnimeRelations, getEpisodeCount } from "../services/animeService";
 import {
@@ -324,10 +324,33 @@ export default function AnimeDetails() {
   };
 
   const handleDownloadAnime = async () => {
-    triggerToast(`Queuing ${Math.min(totalEps, 24)} episodes for download. Check Downloads tab!`);
-    for (let i = 1; i <= Math.min(totalEps, 24); i++) {
-      const streamUrl = `https://megaplay.buzz/stream/mal/${id}/${i}/sub`;
-      await startEpisodeDownload(id, primaryTitle, i, poster, streamUrl).catch(() => {});
+    const queueLength = Math.min(Number(totalEps) || 0, 24);
+    if (!queueLength) {
+      triggerToast("This title has no known episode count to download yet.");
+      return;
+    }
+
+    triggerToast(`Queuing ${queueLength} episode(s) for download. Check the Downloads tab!`);
+
+    // The backend resolves each embed URL to a real video file, so keep the
+    // number of simultaneous resolutions small instead of firing all at once.
+    const queue = Array.from({ length: queueLength }, (_, index) => index + 1);
+    let failed = 0;
+    const worker = async () => {
+      while (queue.length) {
+        const episodeNumber = queue.shift();
+        const streamUrl = `https://megaplay.buzz/stream/mal/${id}/${episodeNumber}/sub`;
+        try {
+          await startEpisodeDownload(id, primaryTitle, episodeNumber, poster, streamUrl);
+        } catch {
+          failed += 1;
+        }
+      }
+    };
+
+    await Promise.all([worker(), worker(), worker()]);
+    if (failed > 0) {
+      triggerToast(`${failed} episode(s) could not be queued — check the Downloads tab for reasons.`);
     }
   };
 

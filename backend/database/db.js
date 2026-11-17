@@ -25,6 +25,12 @@ async function initSchema(db) {
             hidden INTEGER NOT NULL DEFAULT 0
         );
 
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
         CREATE TABLE IF NOT EXISTS downloads (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             anime_id INTEGER NOT NULL,
@@ -42,6 +48,11 @@ async function initSchema(db) {
     const cols = await db.all("PRAGMA table_info(history)");
     if (!cols.some((c) => c.name === "hidden")) {
         await db.exec("ALTER TABLE history ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0");
+    }
+
+    const downloadCols = await db.all("PRAGMA table_info(downloads)");
+    if (!downloadCols.some((c) => c.name === "error")) {
+        await db.exec("ALTER TABLE downloads ADD COLUMN error TEXT");
     }
 }
 
@@ -93,5 +104,29 @@ async function closeDB() {
     }
 }
 
+async function getSetting(key, fallback = null) {
+    const db = await getDB();
+    const row = await db.get("SELECT value FROM settings WHERE key = ?", [key]);
+    return row ? row.value : fallback;
+}
+
+async function setSetting(key, value) {
+    const db = await getDB();
+    await db.run(
+        `INSERT INTO settings (key, value, updated_at)
+         VALUES (?, ?, CURRENT_TIMESTAMP)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`,
+        [key, value]
+    );
+}
+
+async function deleteSetting(key) {
+    const db = await getDB();
+    await db.run("DELETE FROM settings WHERE key = ?", [key]);
+}
+
 module.exports = getDB;
 module.exports.closeDB = closeDB;
+module.exports.getSetting = getSetting;
+module.exports.setSetting = setSetting;
+module.exports.deleteSetting = deleteSetting;

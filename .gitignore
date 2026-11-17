@@ -137,3 +137,7 @@ dist/
 
 # Local database
 backend/database.sqlite*
+# Local database files
+_legacy_unused/*.db
+*.sqlite-wal
+*.sqlite-shm

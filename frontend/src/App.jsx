@@ -1,49 +1,171 @@
 // frontend/src/App.jsx
-import React, { useState, useEffect } from "react";
+import { lazy, Suspense, useState, useEffect, useSyncExternalStore } from "react";
 import { HashRouter as Router, Routes, Route, Link, useLocation } from "react-router-dom";
 import Home from "./pages/Home";
-import WatchList from "./pages/WatchList";
-import WatchListCategory from "./pages/WatchListCategory";
-import Schedule from "./pages/Schedule";
-import Settings from "./pages/Settings";
-import AnimeDetails from "./pages/AnimeDetails";
-import Player from "./pages/Player";
-import ContinueWatching from "./pages/ContinueWatching";
-import Search from "./pages/Search";
-import GenreResults from "./pages/GenreResults";
 import SearchBar from "./components/SearchBar";
 import { initTheme } from "./services/themeService";
+import {
+  detectLegacyMALToken,
+  getMALAuthSnapshot,
+  getMALAuthVersion,
+  getMALStatusSnapshot,
+  getMALStatusVersion,
+  isMALReconnectNeeded,
+  refreshMALStatus,
+  startMALLogin,
+  subscribeMALAuth,
+  subscribeMALStatus,
+} from "./services/malService";
 
-const APP_VERSION = "1.3.0";
+// Secondary routes load on demand; Home stays in the initial bundle.
+const WatchList = lazy(() => import("./pages/WatchList"));
+const WatchListCategory = lazy(() => import("./pages/WatchListCategory"));
+const Schedule = lazy(() => import("./pages/Schedule"));
+const Settings = lazy(() => import("./pages/Settings"));
+const AnimeDetails = lazy(() => import("./pages/AnimeDetails"));
+const Player = lazy(() => import("./pages/Player"));
+const ContinueWatching = lazy(() => import("./pages/ContinueWatching"));
+const Search = lazy(() => import("./pages/Search"));
+const GenreResults = lazy(() => import("./pages/GenreResults"));
+
+// Injected at build time from the root package.json (see vite.config.js).
+const APP_VERSION = typeof __APP_VERSION__ === "string" ? __APP_VERSION__ : "0.0.0";
 
 const RELEASE_CHANGELOG = [
   {
-    category: "🗂️ Genre Discovery & Browsing",
+    category: "▶️ Player & Servers",
     items: [
-      "Added full genre support with dedicated catalog exploration pages.",
-      "Added intuitive filter by genre grid directly on the home screen.",
-      "Optimized category loading speeds with instant in-memory client caching."
+      "Pressing the \">\" (ArrowRight) key after an episode finishes now moves to the next episode instead of replaying the end of the current one. Mid-episode seeking still works as before.",
+      "Settings → Default Video Source now lists all available servers (MegaPlay, Megavid, Anixo, VidHawk, Flixera, TryEmbed, CineXtream, AniEmbed, NontonGo, Ani.pm) instead of only the first four, and the picker stays in sync with the player.",
+      "Embeds that refused to load inside the player (e.g. Flixera, NontonGo) are now allowed to render in the app window, fixing ERR_BLOCKED_BY_RESPONSE on those hosts."
     ]
   },
   {
-    category: "🔞 Adult Content Management",
+    category: "⭐ Sync & Downloads",
     items: [
-      "Added age limit toggle in Settings (safely hidden by default for clean browsing).",
-      "Added smart external search integration for mature series and unhosted titles.",
-      "Added prominent 18+ content badges on collection tiles."
+      "MyAnimeList sync runs through the backend so your token is no longer stored in the app. Reconnect once from the MAL banner or Settings if you were using the old browser-stored token; watchlist, history and downloads are untouched.",
+      "A MAL reconnect banner appears at the top of the app when a session needs attention, and a rejected session pauses auto-sync with a single notification instead of failing on every episode.",
+      "Downloads report real progress/stage where available and can fall back across compatible hosts when a source only serves an embedded player page."
     ]
   },
   {
-    category: "⚡ Performance & Stability",
+    category: "🐛 Fixes & Polish",
     items: [
-      "Minor performance improvements across media cards and playlist rendering.",
-      "General bug fixes for player error handling and API rate-limit management."
+      "Toggling the 18+ filter no longer blanks the app, and adult genres show a hidden-content notice with a one-click reveal instead of an empty page.",
+      "Genre pages report provider errors with a retry button, switching player servers no longer reloads the episode, and watchlist buttons stay in sync across every card on screen.",
+      "History can be cleared in one go, the genre browser starts collapsed, light-theme contrast is improved, and the initial bundle is smaller thanks to per-route loading."
     ]
   }
 ];
 
+// Shown app-wide (not only in Settings) so migrated users notice that MAL sync
+// stopped instead of silently losing progress.
+function MALReconnectBanner() {
+  useSyncExternalStore(subscribeMALStatus, getMALStatusVersion);
+  useSyncExternalStore(subscribeMALAuth, getMALAuthVersion);
+  const status = getMALStatusSnapshot();
+  const authFailure = getMALAuthSnapshot();
+  const [busy, setBusy] = useState(false);
+  const [dismissed, setDismissed] = useState(() => {
+    try {
+      return sessionStorage.getItem("relist_mal_banner_dismissed") === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    refreshMALStatus();
+  }, []);
+
+  const needsReconnect =
+    status.loaded && !status.connected && (Boolean(authFailure) || isMALReconnectNeeded());
+
+  if (!needsReconnect || dismissed) return null;
+
+  const handleDismiss = () => {
+    try {
+      sessionStorage.setItem("relist_mal_banner_dismissed", "1");
+    } catch {
+      // storage unavailable
+    }
+    setDismissed(true);
+  };
+
+  const handleReconnect = async () => {
+    setBusy(true);
+    await startMALLogin();
+    setBusy(false);
+  };
+
+  return (
+    <div
+      role="status"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "12px",
+        flexWrap: "wrap",
+        padding: "10px 24px",
+        background: "rgba(245, 158, 11, 0.14)",
+        borderBottom: "1px solid rgba(245, 158, 11, 0.45)",
+        color: "var(--text-primary)",
+        fontSize: "13px",
+      }}
+    >
+      <span aria-hidden="true">⚠️</span>
+      <span style={{ flex: 1, minWidth: "220px" }}>
+        <strong>{authFailure ? "MyAnimeList session expired." : "MyAnimeList sync is signed out."}</strong>{" "}
+        Reconnect once to keep your progress syncing — watchlist and history are unaffected.
+      </span>
+      <button
+        type="button"
+        onClick={handleReconnect}
+        disabled={busy}
+        style={{
+          padding: "6px 14px",
+          background: "var(--accent-strong, var(--accent-color, #ff0080))",
+          color: "var(--on-accent, #ffffff)",
+          border: "none",
+          borderRadius: "8px",
+          fontSize: "12px",
+          fontWeight: 700,
+          cursor: busy ? "wait" : "pointer",
+        }}
+      >
+        {busy ? "Waiting for MAL…" : "Reconnect MAL"}
+      </button>
+      <Link
+        to="/settings"
+        style={{ color: "var(--text-muted)", fontSize: "12px", fontWeight: 600 }}
+      >
+        Settings
+      </Link>
+      <button
+        type="button"
+        onClick={handleDismiss}
+        aria-label="Dismiss MyAnimeList reconnect notice"
+        style={{
+          background: "transparent",
+          border: "none",
+          color: "var(--text-muted)",
+          cursor: "pointer",
+          fontSize: "15px",
+          lineHeight: 1,
+          padding: "2px 4px",
+        }}
+      >
+        ✕
+      </button>
+    </div>
+  );
+}
+
 function AppContent() {
-  const [showWhatsNew, setShowWhatsNew] = useState(false);
+  // Read once during the first render instead of flipping a flag in an effect.
+  const [showWhatsNew, setShowWhatsNew] = useState(
+    () => localStorage.getItem("relist_last_seen_version") !== APP_VERSION
+  );
   const [unreadBadgeCount, setUnreadBadgeCount] = useState(0);
   const location = useLocation();
 
@@ -54,16 +176,17 @@ function AppContent() {
       console.warn("Theme init:", e);
     }
 
-    const lastSeenVersion = localStorage.getItem("relist_last_seen_version");
-    if (lastSeenVersion !== APP_VERSION) {
-      setShowWhatsNew(true);
-    }
+    // Migrated accounts: clear the browser token and flag the reconnect at
+    // startup, so the banner appears even if Settings is never opened.
+    detectLegacyMALToken();
 
     const checkBadges = () => {
       try {
         const stored = localStorage.getItem("relist_unread_count");
         if (stored) setUnreadBadgeCount(parseInt(stored, 10) || 0);
-      } catch (e) {}
+      } catch (error) {
+        console.warn("[badges] Could not read unread count:", error?.message || error);
+      }
     };
     checkBadges();
     window.addEventListener("storage", checkBadges);
@@ -248,8 +371,17 @@ function AppContent() {
         </nav>
       </header>
 
+      <MALReconnectBanner />
+
       {/* Main View Routes */}
       <main style={{ flex: 1 }}>
+        <Suspense
+          fallback={
+            <div style={{ minHeight: "60vh", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}>
+              Loading…
+            </div>
+          }
+        >
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/search" element={<Search />} />
@@ -271,6 +403,7 @@ function AppContent() {
 
           <Route path="/continue-watching" element={<ContinueWatching />} />
         </Routes>
+        </Suspense>
       </main>
 
       {/* What's New Release Modal */}
@@ -315,7 +448,8 @@ function AppContent() {
             </div>
 
             <p style={{ color: "var(--text-muted)", fontSize: "0.9rem", lineHeight: 1.5, marginTop: 0 }}>
-              We've packed version {APP_VERSION} with advanced genre catalogs, customizable age filters, external search integrations, and general optimizations!
+              Version {APP_VERSION} adds more working player servers, fixes embeds that refused to load, and makes the
+              &quot;&gt;&quot; key jump to the next episode once the current one ends. MAL users on the old token still need a one-time reconnect.
             </p>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "16px", margin: "20px 0" }}>

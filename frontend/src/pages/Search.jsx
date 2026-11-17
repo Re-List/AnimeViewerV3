@@ -1,5 +1,5 @@
 // frontend/src/pages/Search.jsx
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { searchAnime } from "../services/animeService";
 import AnimeCard from "../components/AnimeCard";
@@ -7,26 +7,24 @@ import AnimeCard from "../components/AnimeCard";
 export default function Search() {
   const [searchParams] = useSearchParams();
   const query = searchParams.get("q") || "";
-  const [results, setResults] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [state, setState] = useState({ query: "", items: [] });
+
+  // Loading is derived: any mismatch between the rendered query and the
+  // resolved one means a request is in flight.
+  const loading = Boolean(query.trim()) && state.query !== query;
+  const results = state.query === query ? state.items : [];
 
   useEffect(() => {
-    if (!query.trim()) {
-      setResults([]);
-      return;
-    }
+    if (!query.trim()) return;
     let cancelled = false;
-    setLoading(true);
+
     searchAnime(query)
       .then((data) => {
-        if (!cancelled) setResults(data || []);
+        if (!cancelled) setState({ query, items: data || [] });
       })
       .catch((err) => {
         console.error("Search error:", err);
-        if (!cancelled) setResults([]);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setState({ query, items: [] });
       });
 
     return () => {

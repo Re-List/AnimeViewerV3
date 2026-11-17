@@ -5,6 +5,7 @@ const CACHE_TTL = 1000 * 60 * 60;
 const ANILIST = "https://graphql.anilist.co";
 
 const MEDIA_FIELDS = `
+  id
   idMal
   title { romaji english native }
   coverImage { extraLarge large }
@@ -40,7 +41,9 @@ function getCache(key) {
 function setCache(key, data) {
   try {
     localStorage.setItem(key, JSON.stringify({ data, expiry: Date.now() + CACHE_TTL }));
-  } catch {}
+  } catch {
+    // Quota exceeded or storage disabled: caching is best effort.
+  }
 }
 
 function toDateString(d) {
@@ -99,6 +102,9 @@ export function toJikanShape(media) {
 
   return {
     mal_id: media.idMal,
+    // The streaming hosts added after the MAL-only ones look episodes up by
+    // AniList id, so keep it: this query already returns it at no extra cost.
+    anilist_id: media.id || null,
     title: media.title?.romaji || media.title?.english || "Untitled",
     title_english: media.title?.english || null,
     title_japanese: media.title?.native || null,
@@ -237,12 +243,13 @@ export function getTopRated(page = 1) {
 }
 
 export function peekAnimeDetails(id) {
-  return id ? getCache(`anime_v3_${id}`) : null;
+  // v4: cached v3 entries predate anilist_id, which the newer hosts need.
+  return id ? getCache(`anime_v4_${id}`) : null;
 }
 
 export async function getAnimeDetails(id) {
   if (!id) return null;
-  const cacheKey = `anime_v3_${id}`;
+  const cacheKey = `anime_v4_${id}`;
   const cached = getCache(cacheKey);
   if (cached) return cached;
 

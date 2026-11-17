@@ -143,6 +143,17 @@ router.post("/hide/:anime_id", async (req, res) => {
     }
 });
 
+// DELETE /history - remove every entry at once
+router.delete("/", async (req, res) => {
+    try {
+        const db = await getDB();
+        const result = await db.run("DELETE FROM history");
+        res.json({ success: true, deleted: result?.changes ?? null });
+    } catch (error) {
+        fail(res, "HISTORY CLEAR", "Failed to clear history", error);
+    }
+});
+
 // DELETE /history/:anime_id - remove completely
 router.delete("/:anime_id", async (req, res) => {
     try {

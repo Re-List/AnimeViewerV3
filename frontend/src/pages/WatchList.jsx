@@ -2,9 +2,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import AnimeCard from "../components/AnimeCard";
-import { getHistory, removeHistoryItem } from "../services/historyService";
+import { getHistory, removeHistoryItem, clearHistory } from "../services/historyService";
 import { getAllWatchlist, removeFromWatchlist } from "../services/watchlistService";
-import { getDownloadsList, deleteDownload, formatFileSize } from "../services/downloadService";
+import {
+  getDownloadsList,
+  deleteDownload,
+  formatFileSize,
+  openDownloadFile,
+  describeDownloadProgress,
+  isIndeterminateDownload,
+} from "../services/downloadService";
+import { API_BASE } from "../config";
+
+// <video> can only play these containers; MPEG-TS (HLS downloads) needs the
+// system player instead.
+const BROWSER_PLAYABLE = /\.(mp4|m4v|webm)$/i;
 
 function WatchList() {
   const [activeTab, setActiveTab] = useState("collections");
@@ -17,6 +29,7 @@ function WatchList() {
   const [deleteType, setDeleteType] = useState("");
   const [expandedAnimeTitle, setExpandedAnimeTitle] = useState(null);
   const [offlinePlayingItem, setOfflinePlayingItem] = useState(null);
+  const [clearingHistory, setClearingHistory] = useState(false);
 
   const [selectedDownloadIds, setSelectedDownloadIds] = useState(new Set());
 
@@ -76,9 +89,27 @@ function WatchList() {
     return Object.values(map);
   }, [downloads]);
 
+  const handlePlayDownload = async (ep) => {
+    if (BROWSER_PLAYABLE.test(ep.file_path || "")) {
+      setOfflinePlayingItem(ep);
+      return;
+    }
+    try {
+      await openDownloadFile(ep.id);
+    } catch (err) {
+      window.alert(err.message || "Could not open the file.");
+    }
+  };
+
   const handleDeleteClick = (id, type) => {
     setItemToDelete(id);
     setDeleteType(type);
+    setShowModal(true);
+  };
+
+  const handleClearAllHistory = () => {
+    setItemToDelete(null);
+    setDeleteType("history_all");
     setShowModal(true);
   };
 
@@ -87,6 +118,10 @@ function WatchList() {
       if (deleteType === "history") {
         await removeHistoryItem(itemToDelete);
         setHistory((prev) => prev.filter((item) => item.anime_id !== itemToDelete));
+      } else if (deleteType === "history_all") {
+        setClearingHistory(true);
+        await clearHistory();
+        setHistory([]);
       } else if (deleteType === "downloads") {
         await deleteDownload(itemToDelete);
         setDownloads((prev) => prev.filter((d) => d.id !== itemToDelete));
@@ -108,6 +143,7 @@ function WatchList() {
     } catch (err) {
       console.error(err);
     } finally {
+      setClearingHistory(false);
       setShowModal(false);
       setItemToDelete(null);
       setDeleteType("");
@@ -251,10 +287,10 @@ function WatchList() {
             >
               <div style={{ fontSize: "42px", marginBottom: "12px" }}>⚠️</div>
               <h2 style={{ color: "#f59e0b", margin: "0 0 10px", fontSize: "22px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "1px" }}>
-                Offline Downloads Feature Under Development
+                Downloads Keep Partial Support
               </h2>
               <p style={{ color: "var(--text-muted)", fontSize: "14px", maxWidth: "650px", margin: "0 auto", lineHeight: 1.6 }}>
-                The offline video downloading and stream capture functionality is currently being rebuilt to support external encrypted HLS streams. Please check back in a future update! You can still browse and manage your existing downloads below or use online streaming.
+                Episodes are now fetched for real: the backend follows the player page to the actual video, handles direct files and encrypted HLS playlists, and shows live progress here. Some hosts only serve a protected player with no reachable video file — those episodes are marked <strong>Failed</strong> with the reason instead of saving a broken file. HLS downloads are stored as <code>.ts</code>, which some players cannot open.
               </p>
             </div>
 
@@ -317,7 +353,7 @@ function WatchList() {
                                 {group.title}
                               </h3>
                               <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                                {group.items.length} Episode{group.items.length > 1 ? "s" : ""} Downloaded
+                                {group.items.filter((i) => i.status === "completed").length} of {group.items.length} Episode{group.items.length > 1 ? "s" : ""} downloaded
                               </span>
                             </div>
                           </div>
@@ -349,15 +385,52 @@ function WatchList() {
                                       onChange={() => toggleSelectDownload(ep.id)}
                                       style={{ cursor: "pointer", width: "16px", height: "16px" }}
                                     />
-                                    <div>
+                                    <div style={{ minWidth: 0 }}>
                                       <div style={{ fontSize: "13px", fontWeight: 700 }}>Episode {ep.episode}</div>
-                                      <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>
-                                        {formatFileSize(ep.file_size)}
+                                      <div
+                                        style={{
+                                          fontSize: "11px",
+                                          color: ep.status === "error" ? "#ef4444" : "var(--text-muted)",
+                                          maxWidth: "150px",
+                                          overflow: "hidden",
+                                          textOverflow: "ellipsis",
+                                          whiteSpace: "nowrap",
+                                        }}
+                                        title={ep.status === "error" ? ep.error || "Download failed" : undefined}
+                                      >
+                                        {ep.status === "completed"
+                                          ? formatFileSize(ep.file_size)
+                                          : ep.status === "error"
+                                            ? `Failed — ${ep.error || "unknown reason"}`
+                                            : describeDownloadProgress(ep)}
                                       </div>
+                                      {ep.status === "downloading" && (
+                                        <div style={{ width: "100%", height: "4px", marginTop: "4px", background: "var(--bg-primary)", borderRadius: "2px", overflow: "hidden" }}>
+                                          {isIndeterminateDownload(ep) ? (
+                                            <div style={{ width: "35%", height: "100%", background: "var(--accent-gradient, #ff0080)", borderRadius: "2px", animation: "relist-indeterminate 1.2s ease-in-out infinite" }} />
+                                          ) : (
+                                            <div style={{ width: `${ep.progress || 0}%`, height: "100%", background: "var(--accent-gradient, #ff0080)", transition: "width 0.3s ease" }} />
+                                          )}
+                                        </div>
+                                      )}
                                     </div>
                                   </div>
 
                                   <div style={{ display: "flex", gap: "8px" }}>
+                                    {ep.status === "completed" && ep.file_size > 0 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handlePlayDownload(ep)}
+                                        title={
+                                          BROWSER_PLAYABLE.test(ep.file_path || "")
+                                            ? "Play from disk"
+                                            : "MPEG-TS file: opens in your default video player"
+                                        }
+                                        style={{ padding: "5px 10px", background: "rgba(16, 185, 129, 0.15)", color: "#10b981", border: "1px solid rgba(16, 185, 129, 0.4)", borderRadius: "6px", cursor: "pointer", fontSize: "11px", fontWeight: 700 }}
+                                      >
+                                        {BROWSER_PLAYABLE.test(ep.file_path || "") ? "▶ Play" : "▶ Open"}
+                                      </button>
+                                    )}
                                     <button
                                       type="button"
                                       onClick={() => handleDeleteClick(ep.id, "downloads")}
@@ -383,6 +456,44 @@ function WatchList() {
         {/* History / All Anime View */}
         {activeTab !== "collections" && activeTab !== "downloads" && (
           <div>
+            {activeTab === "history" && history.length > 0 && (
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: "14px",
+                  flexWrap: "wrap",
+                  padding: "12px 18px",
+                  marginBottom: "18px",
+                  background: "var(--bg-surface)",
+                  border: "1px solid var(--border-color)",
+                  borderRadius: "12px",
+                }}
+              >
+                <span style={{ fontSize: "13px", color: "var(--text-muted)" }}>
+                  {history.length} title{history.length === 1 ? "" : "s"} in your watch history
+                </span>
+                <button
+                  type="button"
+                  onClick={handleClearAllHistory}
+                  disabled={clearingHistory}
+                  style={{
+                    padding: "8px 16px",
+                    background: "rgba(239, 68, 68, 0.15)",
+                    color: "#ef4444",
+                    border: "1px solid rgba(239, 68, 68, 0.45)",
+                    borderRadius: "8px",
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    cursor: clearingHistory ? "wait" : "pointer",
+                  }}
+                >
+                  {clearingHistory ? "Clearing…" : "🗑 Clear All History"}
+                </button>
+              </div>
+            )}
+
             {listItems.length === 0 ? (
               <div style={{ textAlign: "center", padding: "60px 0", color: "var(--text-muted)" }}>
                 <div style={{ fontSize: "40px", marginBottom: "12px" }}>📂</div>
@@ -431,7 +542,7 @@ function WatchList() {
           <video
             controls
             autoPlay
-            src={`http://localhost:5000/downloads/stream/${offlinePlayingItem.id}`}
+            src={`${API_BASE}/downloads/stream/${offlinePlayingItem.id}`}
             style={{ width: "100%", maxWidth: "1000px", maxHeight: "80vh", borderRadius: "12px", boxShadow: "0 10px 40px rgba(0,0,0,0.8)" }}
           />
         </div>
@@ -442,10 +553,18 @@ function WatchList() {
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
           <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border-color)", padding: "24px", borderRadius: "14px", maxWidth: "360px", width: "90%", textAlign: "center" }}>
             <h3 style={{ margin: "0 0 10px", color: "var(--text-primary)" }}>
-              {deleteType === "bulk_downloads" ? "Delete selected episodes?" : `Remove from ${deleteType === "downloads" ? "Downloads" : deleteType === "history" ? "History" : "Watchlist"}?`}
+              {deleteType === "history_all"
+                ? `Clear all ${history.length} titles from history?`
+                : deleteType === "bulk_downloads"
+                  ? "Delete selected episodes?"
+                  : `Remove from ${deleteType === "downloads" ? "Downloads" : deleteType === "history" ? "History" : "Watchlist"}?`}
             </h3>
             <p style={{ margin: "0 0 20px", color: "var(--text-muted)", fontSize: "13px" }}>
-              {deleteType === "downloads" || deleteType === "bulk_downloads" ? "This will delete the downloaded video file(s) from your disk." : "This action cannot be undone."}
+              {deleteType === "history_all"
+                ? "Every watch-history entry is removed. Your watchlist and Continue Watching list will be emptied too. This action cannot be undone."
+                : deleteType === "downloads" || deleteType === "bulk_downloads"
+                  ? "This will delete the downloaded video file(s) from your disk."
+                  : "This action cannot be undone."}
             </p>
             <div style={{ display: "flex", gap: "10px", justifyContent: "center" }}>
               <button
@@ -458,9 +577,10 @@ function WatchList() {
               <button
                 type="button"
                 onClick={handleConfirmDelete}
-                style={{ padding: "8px 18px", borderRadius: "8px", border: "none", background: "#ef4444", color: "white", cursor: "pointer", fontWeight: 600 }}
+                disabled={clearingHistory}
+                style={{ padding: "8px 18px", borderRadius: "8px", border: "none", background: "#ef4444", color: "white", cursor: clearingHistory ? "wait" : "pointer", fontWeight: 600 }}
               >
-                Remove
+                {deleteType === "history_all" ? "Clear All" : "Remove"}
               </button>
             </div>
           </div>

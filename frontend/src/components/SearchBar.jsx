@@ -1,5 +1,5 @@
 // frontend/src/components/SearchBar.jsx
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { searchAnime, getTrending } from "../services/animeService";
 
@@ -10,13 +10,22 @@ function SearchBar() {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState([]);
+  const [resultsState, setResultsState] = useState({ query: "", items: [] });
   const [trending, setTrending] = useState([]);
-  const [searching, setSearching] = useState(false);
   const inputRef = useRef(null);
 
   const trimmed = query.trim();
   const ready = trimmed.length >= MIN_CHARS;
+
+  // Derived: results belong to the query that produced them.
+  const results = ready && resultsState.query === trimmed ? resultsState.items : [];
+  const searching = ready && resultsState.query !== trimmed;
+
+  const close = useCallback(() => {
+    setOpen(false);
+    setQuery("");
+    setResultsState({ query: "", items: [] });
+  }, []);
 
   // Real-time trending data fetch whenever search opens
   useEffect(() => {
@@ -54,7 +63,7 @@ function SearchBar() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [close]);
 
   useEffect(() => {
     if (open) {
@@ -64,21 +73,17 @@ function SearchBar() {
   }, [open]);
 
   useEffect(() => {
-    if (!ready) {
-      setResults([]);
-      setSearching(false);
-      return;
-    }
+    if (!ready) return;
     let cancelled = false;
-    setSearching(true);
     const timer = setTimeout(async () => {
       try {
         const list = await searchAnime(trimmed);
-        if (!cancelled) setResults(Array.isArray(list) ? list.slice(0, 8) : []);
-      } catch {
-        if (!cancelled) setResults([]);
-      } finally {
-        if (!cancelled) setSearching(false);
+        if (!cancelled) {
+          setResultsState({ query: trimmed, items: Array.isArray(list) ? list.slice(0, 8) : [] });
+        }
+      } catch (error) {
+        console.warn("[search] Lookup failed:", error?.message || error);
+        if (!cancelled) setResultsState({ query: trimmed, items: [] });
       }
     }, DEBOUNCE_MS);
     return () => {
@@ -86,12 +91,6 @@ function SearchBar() {
       clearTimeout(timer);
     };
   }, [trimmed, ready]);
-
-  const close = () => {
-    setOpen(false);
-    setQuery("");
-    setResults([]);
-  };
 
   const goSearch = (q) => {
     const text = (q ?? trimmed).trim();

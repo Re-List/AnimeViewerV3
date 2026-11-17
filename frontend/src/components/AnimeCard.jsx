@@ -1,96 +1,87 @@
 // frontend/src/components/AnimeCard.jsx
-import React, { useState, useRef, useEffect } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import {
-  addToWatchlist,
-  removeFromWatchlist,
-  getAllWatchlist,
-} from "../services/watchlistService";
+import { addToWatchlist, removeFromWatchlist } from "../services/watchlistService";
 import { getAnimeDetails } from "../services/animeService";
+import {
+  getAdultFilterVersion,
+  isAdultAllowed,
+  isAdultAnime,
+  subscribeAdultFilter,
+} from "../services/adultFilter";
+import {
+  ensureWatchlistLoaded,
+  getWatchlistIndexVersion,
+  isInWatchlist,
+  setInWatchlist,
+  subscribeWatchlistIndex,
+} from "../services/watchlistIndex";
 
-let cachedWatchlistPromise = null;
-let cachedWatchlistTime = 0;
+// Share one details request per anime so a grid never fires duplicate lookups.
+const detailRequests = new Map();
 
-function getCachedWatchlist() {
-  const now = Date.now();
-  if (!cachedWatchlistPromise || now - cachedWatchlistTime > 5000) {
-    cachedWatchlistTime = now;
-    cachedWatchlistPromise = getAllWatchlist().catch(() => []);
+function loadDetailsOnce(animeId) {
+  if (!animeId) return Promise.resolve(null);
+  if (!detailRequests.has(animeId)) {
+    const request = getAnimeDetails(animeId)
+      .catch((error) => {
+        console.warn(`[anime ${animeId}] metadata lookup failed:`, error?.message || error);
+        return null;
+      })
+      .finally(() => detailRequests.delete(animeId));
+    detailRequests.set(animeId, request);
   }
-  return cachedWatchlistPromise;
+  return detailRequests.get(animeId);
 }
 
 export default function AnimeCard({ anime, onDelete }) {
   const [showPopup, setShowPopup] = useState(false);
-  const [inWatchlist, setInWatchlist] = useState(false);
   const [liveStatus, setLiveStatus] = useState(anime?.status || anime?.airing_status || null);
   const [liveTitle, setLiveTitle] = useState(null);
-  const [allow18Plus, setAllow18Plus] = useState(localStorage.getItem("relist_show_18plus") === "true");
+
+  // Shared stores: the 18+ flag and the watchlist index re-render every card
+  // that is mounted, so toggles never leave stale +/✓ badges behind.
+  useSyncExternalStore(subscribeAdultFilter, getAdultFilterVersion);
+  useSyncExternalStore(subscribeWatchlistIndex, getWatchlistIndexVersion);
+  const allow18Plus = isAdultAllowed();
   
   const enterTimeoutRef = useRef(null);
   const leaveTimeoutRef = useRef(null);
   const navigate = useNavigate();
 
-  // Listen for changes to the 18+ setting across the app
-  useEffect(() => {
-    const handleStorageChange = () => {
-      setAllow18Plus(localStorage.getItem("relist_show_18plus") === "true");
-    };
-    window.addEventListener("storage", handleStorageChange);
-    return () => window.removeEventListener("storage", handleStorageChange);
+    useEffect(() => {
+    ensureWatchlistLoaded();
   }, []);
 
-  if (!anime) return null;
-
-  const animeId = anime.id || anime.anime_id || anime.mal_id;
-
-  // 18+ Detection Logic (Supports both Jikan and AniList metadata)
-  const ratingStr = String(anime.rating || "").toLowerCase();
-  const is18Plus = 
-    anime.isAdult === true || 
-    ratingStr.includes("rx") || 
-    ratingStr.includes("hentai") || 
-    (anime.genres || []).some(g => {
-      const n = String(typeof g === 'string' ? g : g.name).toLowerCase();
-      return n === "hentai" || n === "erotica";
-    });
-
-  // Hide card entirely if it's 18+ and the user has the setting disabled
-  if (is18Plus && !allow18Plus) return null;
+  const animeId = anime?.id ?? anime?.anime_id ?? anime?.mal_id ?? null;
+  const animeStatus = anime?.status || "";
+  const is18Plus = isAdultAnime(anime);
+  const inWatchlist = isInWatchlist(animeId);
 
   const hasEnglishTitleAlready = Boolean(
-    anime.title_english || (typeof anime.title === "object" && anime.title?.english)
+    anime?.title_english || (typeof anime?.title === "object" && anime?.title?.english)
   );
   const isWatchlistRowStatus = ["watching", "planned", "plan_to_watch", "completed", "on_hold", "onhold", "dropped"].includes(
-    String(anime.status || "").toLowerCase()
+    String(animeStatus).toLowerCase()
   );
 
   useEffect(() => {
     let cancelled = false;
     async function loadMeta() {
-      try {
-        const list = await getCachedWatchlist();
-        if (cancelled) return;
+      if (hasEnglishTitleAlready || !(isWatchlistRowStatus || !animeStatus)) return;
 
-        if (list && Array.isArray(list)) {
-          setInWatchlist(list.some((item) => String(item.anime_id) === String(animeId)));
-        }
+      const details = await loadDetailsOnce(animeId);
+      if (cancelled || !details) return;
 
-        if (!hasEnglishTitleAlready && (isWatchlistRowStatus || !anime.status)) {
-          const details = await getAnimeDetails(animeId).catch(() => null);
-          if (cancelled || !details) return;
+      const engTitle =
+        details.title_english ||
+        details.title?.english ||
+        details.title?.romaji;
+      if (engTitle) setLiveTitle(engTitle);
 
-          const engTitle =
-            details.title_english ||
-            details.title?.english ||
-            details.title?.romaji;
-          if (engTitle) setLiveTitle(engTitle);
-
-          if (details.status) {
-            setLiveStatus(details.status);
-          }
-        }
-      } catch (e) {}
+      if (details.status) {
+        setLiveStatus(details.status);
+      }
     }
 
     loadMeta();
@@ -99,7 +90,11 @@ export default function AnimeCard({ anime, onDelete }) {
       if (enterTimeoutRef.current) clearTimeout(enterTimeoutRef.current);
       if (leaveTimeoutRef.current) clearTimeout(leaveTimeoutRef.current);
     };
-  }, [animeId, hasEnglishTitleAlready, isWatchlistRowStatus, anime.status]);
+  }, [animeId, hasEnglishTitleAlready, isWatchlistRowStatus, animeStatus]);
+
+  // Every hook lives above this line. Returning early used to change the hook
+  // order when the 18+ filter flipped, which blanked the whole app.
+  if (!anime || (is18Plus && !allow18Plus)) return null;
 
   const title =
     liveTitle ||
@@ -158,21 +153,21 @@ export default function AnimeCard({ anime, onDelete }) {
   const handleWatchlistToggle = async (e) => {
     e.preventDefault();
     e.stopPropagation();
+    const nextInWatchlist = !inWatchlist;
+    setInWatchlist(animeId, nextInWatchlist);
     try {
-      cachedWatchlistTime = 0;
-      if (inWatchlist) {
-        await removeFromWatchlist(animeId);
-        setInWatchlist(false);
-      } else {
+      if (nextInWatchlist) {
         await addToWatchlist({
           anime_id: animeId,
           title,
           image,
           status: "watching",
         });
-        setInWatchlist(true);
+      } else {
+        await removeFromWatchlist(animeId);
       }
     } catch (err) {
+      setInWatchlist(animeId, !nextInWatchlist);
       console.error("Watchlist toggle error:", err);
     }
   };

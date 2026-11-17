@@ -1,5 +1,5 @@
 // main.js
-const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, shell, webFrameMain } = require("electron");
 const path = require("path");
 const net = require("net");
 const fs = require("fs");
@@ -7,6 +7,113 @@ const { autoUpdater } = require("electron-updater");
 
 let mainWindow;
 let rpc = null;
+
+// ========================================================
+// PLAYER KEYBOARD: ">" AFTER THE EPISODE ENDS -> NEXT EPISODE
+// ========================================================
+// Playback lives in a cross-origin embed, so its key presses never reach the
+// React app. Instead the main process injects a tiny bridge into the player
+// frame that reports when that frame's <video> finished, and before-input-event
+// turns the next ">" into a next-episode request. Every other key (including
+// ">" during normal playback) is left to the embed's own player.
+let playerEnded = false;
+
+const PLAYER_ENDED_BRIDGE = [
+  "(function () {",
+  "  if (window.__relistEndedBridge) return;",
+  "  window.__relistEndedBridge = true;",
+  "  var last = null;",
+  "  function report(ended) {",
+  "    if (last === ended) return;",
+  "    last = ended;",
+  "    try { window.top.postMessage({ __relist: 'player-ended', ended: ended }, '*'); } catch (e) {}",
+  "  }",
+  "  function attach() {",
+  "    var videos = document.querySelectorAll('video');",
+  "    for (var i = 0; i < videos.length; i++) {",
+  "      var video = videos[i];",
+  "      if (video.__relistEndedHooked) continue;",
+  "      video.__relistEndedHooked = true;",
+  "      video.addEventListener('ended', function () {",
+  "        // Only full episodes count; short ads/promos inside the embed do not.",
+  "        if ((this.duration || 0) > 300) report(true);",
+  "      });",
+  "      video.addEventListener('timeupdate', function () {",
+  "        var duration = this.duration || 0;",
+  "        // Rewatching from early on clears the flag again; the few seconds of",
+  "        // the ending replayed by the old '>' behaviour does not.",
+  "        if (duration > 300 && this.currentTime > 180 && this.currentTime < duration - 60) report(false);",
+  "      });",
+  "    }",
+  "  }",
+  "  attach();",
+  "  try { new MutationObserver(attach).observe(document.documentElement, { childList: true, subtree: true }); } catch (e) {}",
+  "})();",
+].join("\n");
+
+// ========================================================
+// EMBED FRAME UNBLOCKER (player iframe)
+// ========================================================
+// A few hosts (Flixera and NontonGo in particular) answer with X-Frame-Options
+// or a CSP frame-ancestors rule, which Chromium turns into
+// ERR_BLOCKED_BY_RESPONSE inside the player iframe. This is our own fullscreen
+// window, not a tab on somebody else's page, so drop just those two frame
+// blockers, and only for the embed hosts the player knows about.
+const EMBED_HOSTS = [
+  "megaplay.buzz",
+  "megavid.buzz",
+  "anixo.buzz",
+  "vidhawk.buzz",
+  "flixera.co",
+  "tryembed.us.cc",
+  "cinextream.cc",
+  "aniembed.se",
+  "nontongo.win",
+  "ani.pm",
+];
+
+function isEmbedHost(hostname) {
+  const host = String(hostname || "").toLowerCase();
+  return EMBED_HOSTS.some((domain) => host === domain || host.endsWith("." + domain));
+}
+
+function withoutFrameBlockers(responseHeaders) {
+  const cleaned = {};
+  for (const key of Object.keys(responseHeaders || {})) {
+    const name = key.toLowerCase();
+    // Framing is decided by these two headers alone; everything else is kept.
+    if (name === "x-frame-options") continue;
+    if (name === "content-security-policy") {
+      const directives = []
+        .concat(responseHeaders[key])
+        .join(";")
+        .split(";")
+        .map((directive) => directive.trim())
+        .filter((directive) => directive && !/^frame-ancestors(\s|$)/i.test(directive));
+      if (directives.length === 0) continue;
+      cleaned[key] = [directives.join("; ")];
+      continue;
+    }
+    cleaned[key] = responseHeaders[key];
+  }
+  return cleaned;
+}
+
+function allowEmbedFrames(session) {
+  session.webRequest.onHeadersReceived((details, callback) => {
+    let hostname = "";
+    try {
+      hostname = new URL(details.url).hostname;
+    } catch (err) {
+      hostname = "";
+    }
+    if (!isEmbedHost(hostname)) {
+      callback({ responseHeaders: details.responseHeaders });
+      return;
+    }
+    callback({ responseHeaders: withoutFrameBlockers(details.responseHeaders) });
+  });
+}
 
 // 1. Launch backend server in the background
 require(path.join(__dirname, "backend/server.js"));
@@ -69,6 +176,9 @@ function createWindow() {
   mainWindow.setFullScreen(true);
   mainWindow.setTitle("Re:List");
 
+  // Let the known embed hosts load inside the player iframe.
+  allowEmbedFrames(mainWindow.webContents.session);
+
   // ========================================================
   // POPUP & AD-HIJACK BLOCKER
   // ========================================================
@@ -94,6 +204,26 @@ function createWindow() {
     if (!url.startsWith("http://localhost:5000")) {
       event.preventDefault();
     }
+  });
+
+  // C. Hook every player (sub)frame so the bridge lands in the page that owns
+  // the <video>, then use ">" for next-episode once that video has ended.
+  mainWindow.webContents.on("did-frame-finish-load", (event, isMainFrame, frameProcessId, frameRoutingId) => {
+    const frame =
+      event?.frame ||
+      (frameProcessId != null ? webFrameMain.fromId(frameProcessId, frameRoutingId) : null);
+    if (!frame || !mainWindow || frame === mainWindow.webContents.mainFrame) return;
+    const url = frame.url || "";
+    if (!/^https?:\/\//i.test(url) || url.startsWith("http://localhost:5000")) return;
+    frame.executeJavaScript(PLAYER_ENDED_BRIDGE, false).catch(() => {});
+  });
+
+  mainWindow.webContents.on("before-input-event", (event, input) => {
+    if (!playerEnded || input.type !== "keyDown") return;
+    if (input.key !== "ArrowRight" || input.shift || input.control || input.alt || input.meta) return;
+    event.preventDefault();
+    playerEnded = false;
+    mainWindow.webContents.send("next-episode");
   });
 
   // Connect to backend port 5000 when ready
@@ -174,6 +304,11 @@ ipcMain.on("set-discord-status", (event, { title, episode, image }) => {
 
 ipcMain.on("clear-discord-status", () => {
   setMenuPresence();
+});
+
+// The injected player bridge reports when the current episode finished.
+ipcMain.on("player-ended", (event, ended) => {
+  playerEnded = !!ended;
 });
 
 // Safely open external authentication and documentation links in default browser

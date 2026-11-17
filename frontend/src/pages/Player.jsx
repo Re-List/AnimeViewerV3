@@ -1,36 +1,32 @@
 // frontend/src/pages/Player.jsx
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef, useState, useEffect, useSyncExternalStore } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { getAnimeDetails, getEpisodeCount, peekAnimeDetails } from "../services/animeService";
-import { addHistory, getHistory } from "../services/historyService";
+import { addHistory } from "../services/historyService";
+import { addToWatchlist, removeFromWatchlist } from "../services/watchlistService";
 import {
-  addToWatchlist,
-  removeFromWatchlist,
-  getAllWatchlist,
-} from "../services/watchlistService";
+  ensureWatchlistLoaded,
+  getWatchlistIndexVersion,
+  isInWatchlist,
+  setInWatchlist,
+  subscribeWatchlistIndex,
+} from "../services/watchlistIndex";
+import { isAdultAnime } from "../services/adultFilter";
 import { syncEpisodeToAniList } from "../services/anilistService";
-import { syncEpisodeToMAL, isMALAutoSyncPaused } from "../services/malService";
-import { startEpisodeDownload, getDownloadsList } from "../services/downloadService";
-
-// Standard streaming sources for TV/PG-13/R-17 anime
-const STANDARD_SOURCES = [
-  {
-    name: "MegaPlay",
-    build: (id, ep, lang) => `https://megaplay.buzz/stream/mal/${id}/${ep}/${lang}`,
-  },
-  {
-    name: "Megavid",
-    build: (id, ep, lang) => `https://megavid.buzz/mal/${id}/${ep}/${lang}`,
-  },
-  {
-    name: "Anixo",
-    build: (id, ep, lang) => `https://anixo.buzz/embed/mal/${id}/${ep}?track=${lang}`,
-  },
-  {
-    name: "VidHawk",
-    build: (id, ep, lang) => `https://vidhawk.buzz/embed/mal/${id}/${ep}/${lang}`,
-  },
-];
+import {
+  syncEpisodeToMAL,
+  isMALAutoSyncPaused,
+  getMALAuthSnapshot,
+  getMALAuthVersion,
+  subscribeMALAuth,
+} from "../services/malService";
+import {
+  startEpisodeDownload,
+  getDownloadsList,
+  describeDownloadProgress,
+  isIndeterminateDownload,
+} from "../services/downloadService";
+import { PLAYER_SOURCES as STANDARD_SOURCES } from "../services/playerSources";
 
 const RANGE_SIZE = 100;
 
@@ -43,7 +39,7 @@ export default function Player() {
   const [loading, setLoading] = useState(!anime);
   
   // Track iframe connection status and adult content flag
-  const [iframeLoading, setIframeLoading] = useState(true);
+  const [loadedEmbedUrl, setLoadedEmbedUrl] = useState(null);
   const [isAdult, setIsAdult] = useState(false);
 
   const [currentSource, setCurrentSource] = useState(() => {
@@ -53,32 +49,88 @@ export default function Player() {
   
   const [language, setLanguage] = useState(() => localStorage.getItem("globalLanguage") || "sub");
   const [isTheaterMode, setIsTheaterMode] = useState(() => localStorage.getItem("playerTheater") === "1");
-  const [watched, setWatched] = useState(() => {
+  // Derived from storage + the current episode (no setState inside an effect).
+  const watched = useMemo(() => {
+    const set = new Set();
     try {
       const saved = localStorage.getItem(`watched_${id}`);
-      return saved ? new Set(JSON.parse(saved)) : new Set();
+      if (saved) JSON.parse(saved).forEach((ep) => set.add(ep));
     } catch {
-      return new Set();
+      // Corrupt entry: start from an empty set.
     }
-  });
+    set.add(currentEp);
+    return set;
+  }, [id, currentEp]);
 
-  const [inWatchlist, setInWatchlist] = useState(false);
-  const [range, setRange] = useState(() => Math.floor((currentEp - 1) / RANGE_SIZE));
+  useEffect(() => {
+    try {
+      localStorage.setItem(`watched_${id}`, JSON.stringify([...watched]));
+    } catch (error) {
+      console.warn("Could not persist watched episodes:", error?.message || error);
+    }
+  }, [id, watched]);
+
+  useSyncExternalStore(subscribeWatchlistIndex, getWatchlistIndexVersion);
+  const inWatchlist = isInWatchlist(id);
+  // Range resets per episode; an explicit selection sticks only for that episode.
+  const [rangeOverride, setRangeOverride] = useState(null);
+  const defaultRange = Math.floor((currentEp - 1) / RANGE_SIZE);
+  const range = rangeOverride && rangeOverride.episode === currentEp ? rangeOverride.value : defaultRange;
+  const setRange = (value) => setRangeOverride({ episode: currentEp, value });
   const [episodeSearch, setEpisodeSearch] = useState("");
   const [downloading, setDownloading] = useState(false);
   const [activeDownloads, setActiveDownloads] = useState([]);
+  // Track episodes this session so finished/failed downloads only toast once.
+  const downloadNoticesRef = useRef({ seen: new Set(), done: new Set() });
+  const toastRef = useRef(() => {});
 
   // Toast state
   const [toastMessage, setToastMessage] = useState("");
   const [showToast, setShowToast] = useState(false);
 
-  const triggerToast = (msg) => {
+  const triggerToast = useCallback((msg) => {
     setToastMessage(msg);
     setShowToast(true);
     setTimeout(() => setShowToast(false), 3000);
-  };
+  }, []);
+
+  useEffect(() => {
+    toastRef.current = triggerToast;
+  }, [triggerToast]);
+
+  // MAL rejected the session: tell the user exactly once, not per episode.
+  useSyncExternalStore(subscribeMALAuth, getMALAuthVersion);
+  const malAuthFailure = getMALAuthSnapshot();
+  const notifiedMALFailureRef = useRef(0);
+
+  useEffect(() => {
+    if (!malAuthFailure || notifiedMALFailureRef.current === malAuthFailure.at) return;
+    notifiedMALFailureRef.current = malAuthFailure.at;
+    triggerToast("MyAnimeList session expired — auto-sync paused. Reconnect in Settings.");
+  }, [malAuthFailure, triggerToast]);
 
   const iframeRef = useRef(null);
+  // True once the embedded player reported that the episode finished.
+  const endedRef = useRef(false);
+
+  // The embed is cross-origin, so the only signal that an episode finished is
+  // the bridge main.js injects into the player frame.
+  useEffect(() => {
+    const onMessage = (event) => {
+      const data = event.data;
+      if (!data || data.__relist !== "player-ended") return;
+      endedRef.current = !!data.ended;
+      window.electronAPI?.setPlayerEnded?.(!!data.ended);
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
+
+  // A new episode/server/language gets a fresh iframe and a fresh video.
+  useEffect(() => {
+    endedRef.current = false;
+    window.electronAPI?.setPlayerEnded?.(false);
+  }, [id, currentEp, currentSource, language]);
 
   useEffect(() => {
     let cancelled = false;
@@ -86,23 +138,10 @@ export default function Player() {
       .then((data) => {
         if (!cancelled && data) {
           setAnime(data);
-          
-          // 18+ Detection Logic
-          const ratingStr = String(data.rating || "").toLowerCase();
-          const adultFlag = 
-            data.isAdult === true || 
-            ratingStr.includes("rx") || 
-            ratingStr.includes("hentai") ||
-            (data.genres || []).some(g => {
-              const n = String(typeof g === 'string' ? g : g.name).toLowerCase();
-              return n === "hentai" || n === "erotica";
-            });
-          
-          setIsAdult(adultFlag);
-          
-          if (!adultFlag && currentSource >= STANDARD_SOURCES.length) {
-            setCurrentSource(0);
-          }
+          setIsAdult(isAdultAnime(data));
+          setCurrentSource((prev) =>
+            prev >= STANDARD_SOURCES.length ? 0 : prev
+          );
         }
       })
       .catch((err) => console.error("Could not load anime details:", err))
@@ -110,19 +149,28 @@ export default function Player() {
         if (!cancelled) setLoading(false);
       });
 
-    getAllWatchlist()
-      .then((list) => {
-        if (!cancelled && Array.isArray(list)) {
-          setInWatchlist(list.some((item) => String(item.anime_id) === String(id)));
-        }
-      })
-      .catch(() => {});
+    ensureWatchlistLoaded();
 
     const pollDownloads = async () => {
       const list = await getDownloadsList();
-      if (!cancelled) {
-        setActiveDownloads(list.filter((d) => d.status === "downloading"));
-      }
+      if (cancelled) return;
+      setActiveDownloads(list.filter((d) => d.status === "downloading"));
+
+      const notices = downloadNoticesRef.current;
+      list.forEach((item) => {
+        if (item.status === "downloading") {
+          notices.seen.add(item.id);
+          return;
+        }
+        if (!notices.seen.has(item.id) || notices.done.has(item.id)) return;
+        if (item.status === "completed") {
+          notices.done.add(item.id);
+          toastRef.current(`Episode ${item.episode} downloaded — see the Downloads tab.`);
+        } else if (item.status === "error") {
+          notices.done.add(item.id);
+          toastRef.current(`Download failed: ${item.error || "unknown reason"}`);
+        }
+      });
     };
     pollDownloads();
     const dlTimer = setInterval(pollDownloads, 1500);
@@ -131,15 +179,13 @@ export default function Player() {
       cancelled = true;
       clearInterval(dlTimer);
     };
-  }, [id, currentSource]);
+    // Intentionally keyed on the anime id only: switching servers used to
+    // refetch details, reset the download poll and races with playback.
+  }, [id]);
 
   const rawCount = getEpisodeCount(anime);
   const knownCount = rawCount || anime?.episodes || null;
   const totalEpisodes = Math.max(currentEp, knownCount || currentEp);
-
-  useEffect(() => {
-    setRange(Math.floor((currentEp - 1) / RANGE_SIZE));
-  }, [currentEp]);
 
   const rangeStart = range * RANGE_SIZE + 1;
   const rangeEnd = Math.min((range + 1) * RANGE_SIZE, totalEpisodes);
@@ -169,19 +215,36 @@ export default function Player() {
     };
   }, [id, currentEp, anime, primaryTitle, knownCount]);
 
-  useEffect(() => {
-    setWatched((prev) => {
-      if (prev.has(currentEp)) return prev;
-      const next = new Set(prev);
-      next.add(currentEp);
-      try {
-        localStorage.setItem(`watched_${id}`, JSON.stringify([...next]));
-      } catch {}
+  const exitPageFullscreen = useCallback(() => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
+  }, []);
+
+  const goToEpisode = useCallback((ep) => {
+    // Leaving fullscreen before swapping the embed avoids a stale fullscreen
+    // state that can stop the next episode's player from going fullscreen
+    // until the page is fully reloaded.
+    exitPageFullscreen();
+    navigate(`/watch/${id}/${ep}`);
+  }, [id, navigate, exitPageFullscreen]);
+
+  const selectSource = (idx) => {
+    setCurrentSource(idx);
+    if (!isAdult) {
+      localStorage.setItem("playerSource", String(idx));
+    }
+  };
+
+  const toggleTheater = useCallback(() => {
+    setIsTheaterMode((prev) => {
+      const next = !prev;
+      localStorage.setItem("playerTheater", next ? "1" : "0");
       return next;
     });
-  }, [id, currentEp]);
+  }, []);
 
-  // Hotkeys
+  // Hotkeys (declared after toggleTheater so it is defined when the effect runs)
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
@@ -191,61 +254,53 @@ export default function Player() {
       } else if (e.key === "n" || e.key === "N") {
         if (currentEp < totalEpisodes) {
           e.preventDefault();
-          navigate(`/watch/${id}/${currentEp + 1}`);
+          goToEpisode(currentEp + 1);
         }
       } else if (e.key === "p" || e.key === "P") {
         if (currentEp > 1) {
           e.preventDefault();
-          navigate(`/watch/${id}/${currentEp - 1}`);
+          goToEpisode(currentEp - 1);
+        }
+      } else if (e.key === "ArrowRight" && endedRef.current) {
+        // Episode finished: ">" advances, like every other player.
+        if (currentEp < totalEpisodes) {
+          e.preventDefault();
+          goToEpisode(currentEp + 1);
         }
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [id, currentEp, totalEpisodes]);
+  }, [id, currentEp, totalEpisodes, goToEpisode, toggleTheater]);
 
-  const goToEpisode = (ep) => navigate(`/watch/${id}/${ep}`);
-
-  const selectSource = (idx) => {
-    setCurrentSource(idx);
-    if (!isAdult) {
-      localStorage.setItem("playerSource", String(idx));
-    }
-  };
-
-  const toggleLanguage = () => {
-    const next = language === "sub" ? "dub" : "sub";
-    setLanguage(next);
-    localStorage.setItem("globalLanguage", next);
-  };
-
-  const toggleTheater = () => {
-    setIsTheaterMode((prev) => {
-      const next = !prev;
-      localStorage.setItem("playerTheater", next ? "1" : "0");
-      return next;
+  // Same thing for ">" pressed while the embed itself has keyboard focus: the
+  // main process intercepts it and asks the app for the next episode.
+  useEffect(() => {
+    return window.electronAPI?.onNextEpisode?.(() => {
+      if (currentEp < totalEpisodes) goToEpisode(currentEp + 1);
     });
-  };
+  }, [id, currentEp, totalEpisodes, goToEpisode]);
 
   const handleWatchlistToggle = async () => {
     if (!anime) return;
     const img = anime.images?.jpg?.large_image_url || anime.images?.jpg?.image_url || "";
+    const nextInWatchlist = !inWatchlist;
+    setInWatchlist(id, nextInWatchlist);
     try {
-      if (inWatchlist) {
-        await removeFromWatchlist(id);
-        setInWatchlist(false);
-        triggerToast("Removed from Watch List");
-      } else {
+      if (nextInWatchlist) {
         await addToWatchlist({
           anime_id: id,
           title: primaryTitle,
           image: img,
           status: "watching",
         });
-        setInWatchlist(true);
         triggerToast("Added to Watch List!");
+      } else {
+        await removeFromWatchlist(id);
+        triggerToast("Removed from Watch List");
       }
     } catch (err) {
+      setInWatchlist(id, !nextInWatchlist);
       console.error(err);
       triggerToast("Failed to update watchlist");
     }
@@ -254,17 +309,29 @@ export default function Player() {
   const safeSourceIndex = currentSource % STANDARD_SOURCES.length;
   const source = STANDARD_SOURCES[safeSourceIndex];
   
-  const embedUrl = useMemo(
-    () => source.build(id, currentEp, language),
-    [source, id, currentEp, language]
+  const sourceIds = useMemo(
+    () => ({ mal: id, anilist: anime?.anilist_id || null }),
+    [id, anime?.anilist_id]
   );
 
-  useEffect(() => {
-    setIframeLoading(true);
-  }, [embedUrl]);
+  const embedUrl = useMemo(
+    () => source.build(sourceIds, currentEp, language),
+    [source, sourceIds, currentEp, language]
+  );
+  // AniList-keyed hosts cannot build a link until the details (and with them
+  // the AniList id) have loaded.
+  const embedUnavailable = !embedUrl;
+
+  // Derived from the URL currently loaded in the iframe: no effect, no
+  // cascading render, and the spinner resets on every remount automatically.
+  const iframeLoading = loadedEmbedUrl !== embedUrl;
 
   const handleDownloadThisEpisode = async () => {
     if (!anime) return;
+    if (!embedUrl) {
+      triggerToast("This server has no link for that title yet — pick another server.");
+      return;
+    }
     setDownloading(true);
     try {
       const img = anime.images?.jpg?.large_image_url || anime.image || "";
@@ -272,7 +339,7 @@ export default function Player() {
       triggerToast(`Download started for Episode ${currentEp}!`);
     } catch (err) {
       console.error("Download failed:", err);
-      triggerToast("Failed to start download");
+      triggerToast(err?.message ? `Download failed: ${err.message}` : "Failed to start download");
     } finally {
       setDownloading(false);
     }
@@ -522,12 +589,19 @@ export default function Player() {
                   Search External Sources ↗
                 </button>
               </div>
+            ) : embedUnavailable ? (
+              <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", padding: "20px", textAlign: "center" }}>
+                <span style={{ fontSize: "38px", marginBottom: "14px" }}>🔌</span>
+                <h3 style={{ margin: "0 0 8px", color: "var(--text-primary)", fontSize: "18px" }}>This server needs an AniList match</h3>
+                <p style={{ maxWidth: "420px", lineHeight: 1.5, margin: 0 }}>
+                  {source.name} looks episodes up by AniList id, which did not load for this title. Pick another server above.
+                </p>
+              </div>
             ) : (
               <>
                 {iframeLoading && (
                   <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "var(--accent-color, #ff0080)", zIndex: 10 }}>
-                    <div style={{ width: "40px", height: "40px", border: "3px solid rgba(255,255,255,0.1)", borderTopColor: "var(--accent-color, #ff0080)", borderRadius: "50%", animation: "spin 1s linear infinite", marginBottom: "16px" }} />
-                    <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+                    <div style={{ width: "40px", height: "40px", border: "3px solid rgba(255,255,255,0.1)", borderTopColor: "var(--accent-color, #ff0080)", borderRadius: "50%", animation: "relist-spin 1s linear infinite", marginBottom: "16px" }} />
                     <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-primary)" }}>Connecting to server...</div>
                   </div>
                 )}
@@ -545,7 +619,7 @@ export default function Player() {
                   }}
                   allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
                   allowFullScreen
-                  onLoad={() => setIframeLoading(false)}
+                  onLoad={() => setLoadedEmbedUrl(embedUrl)}
                 />
               </>
             )}
@@ -804,12 +878,16 @@ export default function Player() {
             <div key={d.id} style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", fontWeight: 700 }}>
                 <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "210px" }}>
-                  Downloading: {d.title} (Ep {d.episode})
+                  {d.title} (Ep {d.episode})
                 </span>
-                <span style={{ color: "var(--accent-color, #ff0080)" }}>{d.progress}%</span>
+                <span style={{ color: "var(--accent-color, #ff0080)" }}>{describeDownloadProgress(d)}</span>
               </div>
               <div style={{ width: "100%", height: "6px", background: "var(--bg-primary)", borderRadius: "3px", overflow: "hidden" }}>
-                <div style={{ width: `${d.progress}%`, height: "100%", background: "var(--accent-gradient, #ff0080)", transition: "width 0.3s ease" }} />
+                {isIndeterminateDownload(d) ? (
+                  <div style={{ width: "35%", height: "100%", background: "var(--accent-gradient, #ff0080)", borderRadius: "3px", animation: "relist-indeterminate 1.2s ease-in-out infinite" }} />
+                ) : (
+                  <div style={{ width: `${d.progress || 0}%`, height: "100%", background: "var(--accent-gradient, #ff0080)", transition: "width 0.3s ease" }} />
+                )}
               </div>
             </div>
           ))}

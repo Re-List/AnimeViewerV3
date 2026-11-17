@@ -68,17 +68,12 @@ function Home() {
   const heroItems = data.airing.slice(0, HERO_SLIDES);
   const heroCount = heroItems.length;
 
-  const heroCountRef = useRef(heroCount);
-  heroCountRef.current = heroCount;
-
   // Auto-rotate hero banner
   useEffect(() => {
     if (heroCount < 2) return;
 
     const timer = setInterval(() => {
-      const n = heroCountRef.current;
-      if (n < 2) return;
-      setHeroIndex((i) => (i + 1) % n);
+      setHeroIndex((i) => (i + 1) % heroCount);
     }, HERO_INTERVAL_MS);
 
     return () => clearInterval(timer);
@@ -90,15 +85,13 @@ function Home() {
   };
 
   const prevHero = () => {
-    const n = heroCountRef.current;
-    if (n < 2) return;
-    setHeroIndex((i) => (i - 1 + n) % n);
+    if (heroCount < 2) return;
+    setHeroIndex((i) => (i - 1 + heroCount) % heroCount);
   };
 
   const nextHero = () => {
-    const n = heroCountRef.current;
-    if (n < 2) return;
-    setHeroIndex((i) => (i + 1) % n);
+    if (heroCount < 2) return;
+    setHeroIndex((i) => (i + 1) % heroCount);
   };
 
   if (loading) {
@@ -440,11 +433,6 @@ function ShelfRow({ icon, iconColor, title, initial, fetchPage }) {
   const [done, setDone] = useState(initial.length === 0);
   const rowRef = useRef(null);
   const busyRef = useRef(false);
-
-  useEffect(() => {
-    setItems(initial);
-    setDone(initial.length === 0);
-  }, [initial]);
 
   const loadMore = async () => {
     if (busyRef.current || done) return;

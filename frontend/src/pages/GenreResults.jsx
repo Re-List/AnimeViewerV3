@@ -1,11 +1,54 @@
 // frontend/src/pages/GenreResults.jsx
-import React, { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useState, useEffect, useSyncExternalStore } from "react";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import AnimeCard from "../components/AnimeCard";
 import GenreBrowser from "../components/GenreBrowser";
+import {
+  getAdultFilterVersion,
+  isAdultAllowed,
+  isAdultAnime,
+  setAdultAllowed,
+  subscribeAdultFilter,
+} from "../services/adultFilter";
 
-// In-memory cache so switching tabs or revisiting genres is instant (0ms)
+// In-memory cache so switching tabs or revisiting genres is instant (0ms).
+// Bounded and expiring: the old Map grew for the whole session and cached
+// failures forever.
+const GENRE_CACHE_TTL_MS = 10 * 60 * 1000;
+const GENRE_CACHE_MAX = 60;
 const genrePageCache = new Map();
+
+function readCache(key) {
+  const entry = genrePageCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.createdAt > GENRE_CACHE_TTL_MS) {
+    genrePageCache.delete(key);
+    return null;
+  }
+  genrePageCache.delete(key);
+  genrePageCache.set(key, entry);
+  return entry.value;
+}
+
+function writeCache(key, value) {
+  genrePageCache.set(key, { value, createdAt: Date.now() });
+  while (genrePageCache.size > GENRE_CACHE_MAX) {
+    const oldest = genrePageCache.keys().next().value;
+    genrePageCache.delete(oldest);
+  }
+}
+
+// React Router already decodes route params; only decode when the value still
+// carries escapes (hand-typed links) so "%" is never decoded twice.
+function normaliseGenre(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw.includes("%")) return raw;
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
 
 // Official Jikan v4 (MyAnimeList) Genre, Theme, and Demographic IDs
 const JIKAN_GENRE_MAP = {
@@ -265,20 +308,21 @@ async function fetchFromJikan(cleanName, page = 1, typeFilter = "all", sortBy = 
   return { items, hasMore };
 }
 
-async function fetchGenrePage(genreName, page = 1, typeFilter = "all", sortBy = "score") {
-  const cleanName = decodeURIComponent(genreName).trim();
+async function fetchGenrePage(genreName, page = 1, typeFilter = "all", sortBy = "score", { force = false } = {}) {
+  const cleanName = normaliseGenre(genreName);
   const key = cleanName.toLowerCase();
   const cacheKey = `${key}__${typeFilter}__${sortBy}__${page}`;
 
-  if (genrePageCache.has(cacheKey)) {
-    return genrePageCache.get(cacheKey);
+  if (!force) {
+    const cached = readCache(cacheKey);
+    if (cached) return cached;
   }
 
   // 1. Try fast AniList GraphQL first (~150ms response time, no 3 req/sec bottleneck)
   try {
     const anilistResult = await fetchFromAniList(key, page, typeFilter, sortBy);
     if (anilistResult && anilistResult.items.length > 0) {
-      genrePageCache.set(cacheKey, anilistResult);
+      writeCache(cacheKey, anilistResult);
       return anilistResult;
     }
   } catch (err) {
@@ -288,13 +332,12 @@ async function fetchGenrePage(genreName, page = 1, typeFilter = "all", sortBy = 
   // 2. Fallback to Jikan v4 if AniList didn't have a direct mapping
   const jikanResult = await fetchFromJikan(cleanName, page, typeFilter, sortBy);
   if (jikanResult.items.length > 0) {
-    genrePageCache.set(cacheKey, jikanResult);
+    writeCache(cacheKey, jikanResult);
   }
   return jikanResult;
 }
 
 export default function GenreResults() {
-  const { genreName } = useParams();
   const navigate = useNavigate();
 
   const [animeList, setAnimeList] = useState([]);
@@ -302,21 +345,35 @@ export default function GenreResults() {
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const [typeFilter, setTypeFilter] = useState("all"); // all | tv | movie | ona
   const [sortBy, setSortBy] = useState("score"); // score | popular | newest | az
 
-  const decodedGenre = decodeURIComponent(genreName || "");
+  const { genreName } = useParams();
+  const decodedGenre = normaliseGenre(genreName);
+
+  // Re-render when the 18+ filter changes; keep adult titles out of the grid when it is off.
+  useSyncExternalStore(subscribeAdultFilter, getAdultFilterVersion);
+  const allow18Plus = isAdultAllowed();
+  const visibleAnime = allow18Plus
+    ? animeList
+    : animeList.filter((anime) => !isAdultAnime(anime));
+  const hiddenCount = animeList.length - visibleAnime.length;
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadInitial() {
       setLoading(true);
+      setError(null);
       setPage(1);
 
       try {
-        const { items, hasMore: more } = await fetchGenrePage(decodedGenre, 1, typeFilter, sortBy);
+        const { items, hasMore: more } = await fetchGenrePage(decodedGenre, 1, typeFilter, sortBy, {
+          force: reloadKey > 0,
+        });
         if (cancelled) return;
 
         const seen = new Set();
@@ -331,7 +388,11 @@ export default function GenreResults() {
         setHasMore(more);
       } catch (err) {
         console.error("Error loading genre anime:", err);
-        if (!cancelled) setAnimeList([]);
+        if (!cancelled) {
+          setAnimeList([]);
+          setHasMore(false);
+          setError(err?.message || "The catalog providers are not responding.");
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -341,7 +402,7 @@ export default function GenreResults() {
     return () => {
       cancelled = true;
     };
-  }, [decodedGenre, typeFilter, sortBy]);
+  }, [decodedGenre, typeFilter, sortBy, reloadKey]);
 
   // Scroll to top only when switching to a different genre
   useEffect(() => {
@@ -369,6 +430,7 @@ export default function GenreResults() {
       setHasMore(more);
     } catch (err) {
       console.error("Failed to load more genre items:", err);
+      setError(err?.message || "Could not load more titles.");
     } finally {
       setLoadingMore(false);
     }
@@ -407,7 +469,8 @@ export default function GenreResults() {
           </h1>
           {!loading && (
             <span style={{ fontSize: "13px", color: "var(--text-muted)", fontWeight: 600 }}>
-              {animeList.length}{hasMore ? "+" : ""} titles loaded
+              {visibleAnime.length}{hasMore && visibleAnime.length > 0 ? "+" : ""} titles loaded
+              {hiddenCount > 0 ? ` · ${hiddenCount} hidden` : ""}
             </span>
           )}
         </div>
@@ -451,8 +514,8 @@ export default function GenreResults() {
                 type="button"
                 onClick={() => setTypeFilter(tab.id)}
                 style={{
-                  background: active ? "var(--accent-gradient, var(--accent-color, #ff0080))" : "transparent",
-                  color: active ? "#ffffff" : "var(--text-muted)",
+                  background: active ? "var(--accent-strong, var(--accent-color, #ff0080))" : "transparent",
+                  color: active ? "var(--on-accent, #ffffff)" : "var(--text-muted)",
                   border: "none",
                   borderRadius: "999px",
                   padding: "6px 16px",
@@ -492,8 +555,8 @@ export default function GenreResults() {
                 type="button"
                 onClick={() => setSortBy(s.id)}
                 style={{
-                  background: active ? "var(--accent-gradient, var(--accent-color, #ff0080))" : "transparent",
-                  color: active ? "#ffffff" : "var(--text-muted)",
+                  background: active ? "var(--accent-strong, var(--accent-color, #ff0080))" : "transparent",
+                  color: active ? "var(--on-accent, #ffffff)" : "var(--text-muted)",
                   border: "none",
                   borderRadius: "999px",
                   padding: "6px 16px",
@@ -535,14 +598,84 @@ export default function GenreResults() {
             </div>
           ))}
         </div>
+      ) : error ? (
+        <div style={{ textAlign: "center", padding: "80px 20px", color: "var(--text-muted)" }}>
+          <h3 style={{ color: "var(--text-primary)", marginBottom: "8px" }}>
+            Couldn’t load {decodedGenre} anime.
+          </h3>
+          <p style={{ margin: "0 0 18px", fontSize: "13px" }}>{error}</p>
+          <button
+            type="button"
+            onClick={() => setReloadKey((key) => key + 1)}
+            style={{
+              background: "var(--accent-strong, var(--accent-color, #ff0080))",
+              color: "var(--on-accent, #ffffff)",
+              border: "none",
+              borderRadius: "999px",
+              padding: "10px 24px",
+              fontSize: "13px",
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            Try again
+          </button>
+        </div>
       ) : animeList.length === 0 ? (
         <div style={{ textAlign: "center", padding: "90px 20px", color: "var(--text-muted)" }}>
           <h3>No titles found for {decodedGenre} with the selected filter.</h3>
         </div>
+      ) : visibleAnime.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "80px 20px", color: "var(--text-muted)" }}>
+          <h3 style={{ color: "var(--text-primary)", marginBottom: "8px" }}>
+            {hiddenCount} titles here are marked 18+.
+          </h3>
+          <p style={{ margin: "0 0 18px", fontSize: "13px" }}>
+            They are hidden because the 18+ content filter is off.
+          </p>
+          <div style={{ display: "flex", gap: "10px", justifyContent: "center", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={() => setAdultAllowed(true)}
+              style={{
+                background: "var(--accent-strong, var(--accent-color, #ff0080))",
+                color: "var(--on-accent, #ffffff)",
+                border: "none",
+                borderRadius: "999px",
+                padding: "10px 22px",
+                fontSize: "13px",
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              Show 18+ content
+            </button>
+            <Link
+              to="/settings"
+              style={{
+                border: "1px solid var(--border-color)",
+                borderRadius: "999px",
+                padding: "10px 22px",
+                fontSize: "13px",
+                fontWeight: 700,
+                color: "var(--text-primary)",
+                textDecoration: "none",
+              }}
+            >
+              Content settings
+            </Link>
+          </div>
+        </div>
       ) : (
         <>
+          {hiddenCount > 0 && (
+            <p style={{ margin: "0 0 16px", fontSize: "13px", color: "var(--text-muted)" }}>
+              {hiddenCount} of {animeList.length} titles hidden by the 18+ content filter.
+            </p>
+          )}
+
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(165px, 1fr))", gap: "20px" }}>
-            {animeList.map((anime) => (
+            {visibleAnime.map((anime) => (
               <AnimeCard key={anime.mal_id || anime.id} anime={anime} />
             ))}
           </div>
